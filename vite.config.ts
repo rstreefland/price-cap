@@ -39,7 +39,6 @@ const appConfig = defineConfig({
                 "default-src 'none'",
                 "script-src 'self'",
                 "style-src 'self'",
-                "font-src 'self'",
                 "img-src 'self'",
                 "connect-src 'none'",
                 "base-uri 'none'",

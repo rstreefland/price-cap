@@ -25,7 +25,7 @@ This is a static, pre-rendered UK energy price cap website with zero frontend fr
 
 ## UI and accessibility
 
-- Use plain modular CSS (`src/styles/theme.css` plus feature-owned stylesheets) and self-hosted `@fontsource/dm-sans`.
+- Use plain modular CSS (`src/styles/theme.css` plus feature-owned stylesheets) and the native system UI font stack (no bundled web fonts).
 - Keep mobile and desktop layouts functionally equivalent and preserve selected region and payment method across resizes.
 - Use semantic HTML controls, keyboard accessibility, adequate touch targets, and `prefers-reduced-motion` support.
 

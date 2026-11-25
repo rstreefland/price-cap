@@ -1,7 +1,3 @@
-import '@fontsource/dm-sans/latin-400.css';
-import '@fontsource/dm-sans/latin-500.css';
-import '@fontsource/dm-sans/latin-600.css';
-import '@fontsource/dm-sans/latin-700.css';
 import type { TrendDirection } from '../domain/priceCap';
 import { PAYMENT_METHODS, REGIONS, type PaymentMethodId, type RegionId } from '../domain/types';
 
