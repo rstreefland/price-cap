@@ -212,7 +212,7 @@ export function renderPageHtml(params: {
           <p class="kicker">Announced · ${escapeHtml(snapshot.upcomingPeriod.label)}</p>
           <p class="hero-figure hero-figure--next tnum" data-field="nxt-dual">${escapeHtml(formatPounds({ value: snapshot.upcomingRates.dualFuelAnnualPounds }))}</p>
           <p class="hero-meta tnum">
-            <span class="trend-text" data-field="delta-full">${escapeHtml(deltaText)}</span> vs current quarter
+            <span class="trend-text" data-field="delta-full">${escapeHtml(deltaText)}</span><span data-upcoming-start="${escapeHtml(snapshot.upcomingPeriod.startDate)}"> vs current quarter</span>
           </p>
         </article>`
       : `<article class="hero-cell hero-cell--next" data-trend-target data-trend="flat">

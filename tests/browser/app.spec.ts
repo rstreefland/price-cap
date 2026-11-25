@@ -18,6 +18,7 @@ describe('production static build', () => {
     expect(result.faviconStatus).toBe(200);
     expect(result.currentDual).toMatch(/^£[\d,]+$/);
     expect(result.nextDual).toMatch(/^£[\d,]+$/);
+    expect(result.timingText).toBe(' vs current quarter');
 
     const head = new DOMParser().parseFromString(result.metadata, 'text/html');
     expect(head.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#0b0d0f');
@@ -65,6 +66,7 @@ describe('production static build', () => {
   it('enforces hash-based strict production CSP and updates rates and chart progressively', async () => {
     const result = await commands.productionPage({ mode: 'security' });
     expect(result.controlsVisibleWithJs).toBe(true);
+    expect(result.timingTextWithJs).toMatch(/effective (tomorrow|in \d+ days)/);
     expect(result.londonDual).toMatch(/^£[\d,]+$/);
     expect(result.londonChartLast).toMatch(/^£[\d,]+$/);
     expect(result.initialViolations).toEqual([]);

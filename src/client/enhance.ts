@@ -107,13 +107,75 @@ function parseMatrixPayload(raw: unknown): DecodedView[][] | null {
   return matrix;
 }
 
+function civilDateToEpochDay(isoDate: string): bigint | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return null;
+  let year = BigInt(match[1]);
+  const month = BigInt(match[2]);
+  const day = BigInt(match[3]);
+  if (month <= 2n) year -= 1n;
+  const era = year >= 0n ? year / 400n : (year - 399n) / 400n;
+  const yearOfEra = year - era * 400n;
+  const monthOffset = month > 2n ? month - 3n : month + 9n;
+  const dayOfYear = (153n * monthOffset + 2n) / 5n + day - 1n;
+  const dayOfEra = yearOfEra * 365n + yearOfEra / 4n - yearOfEra / 100n + dayOfYear;
+  return era * 146097n + dayOfEra - 719468n;
+}
+
+export function todayIsoInLondon(): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts();
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+}
+
+export function daysBetweenIsoDates(params: {
+  fromIsoDate: string;
+  toIsoDate: string;
+}): number | null {
+  const fromDay = civilDateToEpochDay(params.fromIsoDate);
+  const toDay = civilDateToEpochDay(params.toIsoDate);
+  if (fromDay === null || toDay === null) return null;
+  return Number(toDay - fromDay);
+}
+
+export function formatCountdownSuffix(days: number): string | null {
+  if (days <= 0) return null;
+  if (days === 1) return ' · effective tomorrow';
+  return ` · effective in ${days} days`;
+}
+
 function setFieldText(root: ParentNode, field: string, value: string | null): void {
   if (value === null) return;
   const el = root.querySelector(`[data-field="${field}"]`);
   if (el) el.textContent = value;
 }
 
+export function initCountdown(params: { root?: Document; todayIsoDate?: string } = {}): void {
+  const root = params.root ?? document;
+  const target = root.querySelector('[data-upcoming-start]');
+  if (!target) return;
+  const startDate = target.getAttribute('data-upcoming-start');
+  if (!startDate) return;
+  const fromIsoDate = params.todayIsoDate ?? todayIsoInLondon();
+  const days = daysBetweenIsoDates({ fromIsoDate, toIsoDate: startDate });
+  if (days === null) return;
+  const suffix = formatCountdownSuffix(days);
+  if (suffix) {
+    target.textContent = suffix;
+  }
+}
+
 export function initPriceCapControls(root: Document = document): void {
+  initCountdown({ root });
+
   const payloadEl = root.getElementById('price-cap-payload');
   const regionSelect = root.getElementById('region-select');
   const paymentSelect = root.getElementById('payment-select');

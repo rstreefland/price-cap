@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parsePriceCapDataset } from '../api/schema';
-import { initPriceCapControls } from '../client/enhance';
+import {
+  daysBetweenIsoDates,
+  formatCountdownSuffix,
+  initCountdown,
+  initPriceCapControls,
+} from '../client/enhance';
 import { parsePlainDate } from '../domain/time';
 import { renderPageHtml } from './page';
 
@@ -12,7 +17,20 @@ function loadDataset() {
 }
 
 describe('static page renderer and progressive enhancement', () => {
-  it('renders Ofgem price cap Design 3 markup with red up trend, footer, and interactive controls', () => {
+  it('computes UK civil-date countdowns cleanly across year and leap-year boundaries', () => {
+    expect(daysBetweenIsoDates({ fromIsoDate: '2026-11-25', toIsoDate: '2027-01-01' })).toBe(37);
+    expect(daysBetweenIsoDates({ fromIsoDate: '2024-02-28', toIsoDate: '2024-03-01' })).toBe(2);
+    expect(daysBetweenIsoDates({ fromIsoDate: '2026-12-31', toIsoDate: '2027-01-01' })).toBe(1);
+    expect(daysBetweenIsoDates({ fromIsoDate: '2027-01-01', toIsoDate: '2027-01-01' })).toBe(0);
+    expect(daysBetweenIsoDates({ fromIsoDate: 'bad', toIsoDate: '2027-01-01' })).toBeNull();
+
+    expect(formatCountdownSuffix(37)).toBe(' · effective in 37 days');
+    expect(formatCountdownSuffix(1)).toBe(' · effective tomorrow');
+    expect(formatCountdownSuffix(0)).toBeNull();
+    expect(formatCountdownSuffix(-3)).toBeNull();
+  });
+
+  it('renders Ofgem price cap Design 3 markup with red up trend, footer, countdown, and interactive controls', () => {
     const dataset = loadDataset();
     const html = renderPageHtml({
       dataset,
@@ -30,12 +48,25 @@ describe('static page renderer and progressive enhancement', () => {
     expect(document.querySelector('.footer-disclaimer')?.textContent).toContain(
       'use at your own risk',
     );
+    expect(document.querySelector('[data-upcoming-start]')?.textContent).toBe(
+      ' vs current quarter',
+    );
 
     expect(document.querySelector('[data-trend-root]')?.getAttribute('data-trend')).toBe('up');
     expect(document.querySelector('[data-field="cur-dual"]')?.textContent).toBe('£1,723');
     expect(document.querySelector('[data-field="nxt-dual"]')?.textContent).toBe('£2,166');
     expect(document.querySelector('[data-field="cur-elec-unit"]')?.textContent).toBe('26.32p');
     expect(document.querySelector('[data-field="cur-gas-unit"]')?.textContent).toBe('7.97p');
+
+    initCountdown({ root: document, todayIsoDate: '2026-11-25' });
+    expect(document.querySelector('[data-upcoming-start]')?.textContent).toBe(
+      ' · effective in 37 days',
+    );
+
+    initCountdown({ root: document, todayIsoDate: '2026-12-31' });
+    expect(document.querySelector('[data-upcoming-start]')?.textContent).toBe(
+      ' · effective tomorrow',
+    );
 
     initPriceCapControls(document);
 

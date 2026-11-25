@@ -67,6 +67,7 @@ export async function productionPage(
         disclaimerVisible: await page.getByText(/use at your own risk/i).isVisible(),
         currentDual: await page.locator('[data-field="cur-dual"]').textContent(),
         nextDual: await page.locator('[data-field="nxt-dual"]').textContent(),
+        timingText: await page.locator('[data-upcoming-start]').textContent(),
         chartVisible: await page.locator('[data-chart-svg]').isVisible(),
         faviconStatus: favicon.status(),
         image: {
@@ -135,6 +136,7 @@ export async function productionPage(
     }
 
     const controlsVisibleWithJs = await page.locator('.controls-bar').isVisible();
+    const timingTextWithJs = await page.locator('[data-upcoming-start]').textContent();
     await page.getByLabel('Region', { exact: true }).selectOption('london');
     const londonDual = await page.locator('[data-field="cur-dual"]').textContent();
     const londonChartLast = await page
@@ -158,6 +160,7 @@ export async function productionPage(
 
     return {
       controlsVisibleWithJs,
+      timingTextWithJs,
       londonDual,
       londonChartLast,
       initialViolations,
