@@ -48,10 +48,17 @@ export async function productionPage(
 
     const response = await page.goto(productionURL);
     if (options.mode === 'static') {
+      const metadata = await page.locator('head').innerHTML();
       const favicon = await page.request.get(new URL('/favicon.svg', productionURL).href);
+      const image = await page.request.get(new URL('/social-card.png', productionURL).href);
+      const bytes = await image.body();
+      const robots = await page.request.get(new URL('/robots.txt', productionURL).href);
+      const sitemap = await page.request.get(new URL('/sitemap.xml', productionURL).href);
+
       return {
         status: response?.status(),
         title: await page.title(),
+        metadata,
         headingVisible: await page
           .getByRole('heading', { name: 'Ofgem price cap', exact: true })
           .isVisible(),
@@ -61,6 +68,14 @@ export async function productionPage(
         nextDual: await page.locator('[data-field="nxt-dual"]').textContent(),
         chartVisible: await page.locator('[data-chart-svg]').isVisible(),
         faviconStatus: favicon.status(),
+        image: {
+          status: image.status(),
+          contentType: image.headers()['content-type'],
+          signature: bytes.readUInt32BE(0),
+          dimensions: [bytes.readUInt32BE(16), bytes.readUInt32BE(20)],
+        },
+        robots: { status: robots.status(), text: await robots.text() },
+        sitemap: { status: sitemap.status(), text: await sitemap.text() },
         unexpectedRequests,
       };
     }

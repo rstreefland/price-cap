@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { parsePriceCapDataset } from './src/api/schema';
 import { renderPageHtml } from './src/render/page';
+import { renderSeoHeadTags } from './src/render/seo';
 import { todayInLondon } from './src/domain/time';
 import { browserConfig } from './vitest.browser.config';
 
@@ -18,11 +19,12 @@ const appConfig = defineConfig({
         handler(html) {
           const raw = JSON.parse(readFileSync(DATA_PATH, 'utf8'));
           const dataset = parsePriceCapDataset(raw);
-          const rendered = renderPageHtml({
-            dataset,
-            referenceDate: todayInLondon(),
-          });
-          return html.replace('<!-- app-content -->', rendered);
+          const referenceDate = todayInLondon();
+          const seoTags = renderSeoHeadTags({ dataset, referenceDate });
+          const rendered = renderPageHtml({ dataset, referenceDate });
+          return html
+            .replace('<!-- seo-metadata -->', seoTags)
+            .replace('<!-- app-content -->', rendered);
         },
       },
     },

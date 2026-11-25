@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://price-cap.streefland.co.uk/sitemap.xml

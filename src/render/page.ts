@@ -293,7 +293,7 @@ export function renderPageHtml(params: {
               ${APP_ICON_SVG}
               <h1 class="brand-title">Ofgem price cap</h1>
             </div>
-            <p class="brand-lead">Current and upcoming Ofgem default tariff rates across Great Britain, parsed directly from Ofgem Annex 9 data. Pick your region and payment method to compare unit rates, standing charges, and typical annual bills.</p>
+            <p class="brand-lead">Current and upcoming Ofgem default tariff rates across Great Britain. Pick your region and payment method to compare unit rates, standing charges, and typical annual bills.</p>
           </div>
           <div class="controls-bar" role="group" aria-label="Region and payment method filters">
             <div class="control-field">
