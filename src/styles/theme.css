@@ -1,0 +1,60 @@
+:root {
+  --bg-canvas: #0b0d0f;
+  --bg-surface: #0f1113;
+  --bg-elevated: #14171a;
+  --bg-control: #171a1d;
+  --ink-primary: #f3f4f6;
+  --ink-secondary: #9ca3af;
+  --border-hairline: #262a30;
+  --border-control: #323842;
+  --trend-up: #f87171;
+  --trend-down: #34d399;
+  --trend-flat: #e5e7eb;
+  --next-accent: var(--trend-flat);
+  --focus-ring: #f3f4f6;
+  --radius-sm: 4px;
+  --font-sans: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-trend='up'] {
+  --next-accent: var(--trend-up);
+}
+
+[data-trend='down'] {
+  --next-accent: var(--trend-down);
+}
+
+[data-trend='flat'] {
+  --next-accent: var(--trend-flat);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
