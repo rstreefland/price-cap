@@ -35,47 +35,53 @@ function escapeJsonForScript(value: string): string {
   return value.replace(/</g, '\\u003c');
 }
 
-const APP_ICON_SVG = `<svg class="brand-icon" viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden="true">
-  <rect x="1" y="1" width="30" height="30" rx="6" fill="#171A1D" stroke="#323842" stroke-width="1.5" />
-  <rect x="6" y="7" width="20" height="3" rx="1" fill="#F3F4F6" />
-  <path d="M7 22H12.5V17.5H19V13.5H25" stroke="#F3F4F6" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter" />
-  <rect class="brand-icon-accent" x="22" y="12" width="4" height="3" rx="0.75" />
-</svg>`;
-
-export interface ClientViewState {
-  regionName: string;
-  curDual: string;
-  nxtDual: string | null;
-  deltaFull: string | null;
-  trend: TrendDirection;
-  curElecUnit: string;
-  curElecStanding: string;
-  curGasUnit: string;
-  curGasStanding: string;
-  nxtElecUnit: string | null;
-  nxtElecStanding: string | null;
-  nxtGasUnit: string | null;
-  nxtGasStanding: string | null;
-  chartConnector: string;
-  chartPoints: Array<{
-    y: string;
-    labelY: string;
-    valueLabel: string;
-  }>;
+function compactHtml(markup: string): string {
+  return markup.replace(/>\s+</g, '><').trim();
 }
 
-export interface CompactClientPayload {
-  views: Record<PaymentMethodId, Record<RegionId, ClientViewState>>;
+const APP_ICON_SVG =
+  '<svg class="brand-icon" viewBox="0 0 32 32" width="28" height="28" fill="none" aria-hidden="true">' +
+  '<rect x="1" y="1" width="30" height="30" rx="6" fill="#171A1D" stroke="#323842" stroke-width="1.5" />' +
+  '<rect x="6" y="7" width="20" height="3" rx="1" fill="#F3F4F6" />' +
+  '<path d="M7 22H12.5V17.5H19V13.5H25" stroke="#F3F4F6" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter" />' +
+  '<rect class="brand-icon-accent" x="22" y="12" width="4" height="3" rx="0.75" />' +
+  '</svg>';
+
+export type TrendCode = 'u' | 'd' | 'f';
+
+export type CompactChartTuple = [string, string, string];
+
+export type CompactViewTuple = [
+  TrendCode,
+  string,
+  string | null,
+  string | null,
+  string,
+  string,
+  string,
+  string,
+  string | null,
+  string | null,
+  string | null,
+  string | null,
+  CompactChartTuple[],
+];
+
+export type CompactMatrixPayload = CompactViewTuple[][];
+
+function toTrendCode(trend: TrendDirection): TrendCode {
+  if (trend === 'up') return 'u';
+  if (trend === 'down') return 'd';
+  return 'f';
 }
 
-function buildClientView(params: {
+function buildCompactViewTuple(params: {
   recentPeriods: ReadonlyArray<{ period: CapPeriod; status: 'current' | 'upcoming' | 'past' }>;
   currentPeriod: CapPeriod;
   upcomingPeriod: CapPeriod | null;
   paymentMethod: PaymentMethodId;
   regionId: RegionId;
-  regionName: string;
-}): ClientViewState {
+}): CompactViewTuple {
   const cur = params.currentPeriod.rates[params.paymentMethod][params.regionId];
   const nxt = params.upcomingPeriod
     ? params.upcomingPeriod.rates[params.paymentMethod][params.regionId]
@@ -105,75 +111,45 @@ function buildClientView(params: {
     })),
   );
 
-  return {
-    regionName: params.regionName,
-    curDual: formatPounds({ value: cur.dualFuelAnnualPounds }),
-    nxtDual: nxt ? formatPounds({ value: nxt.dualFuelAnnualPounds }) : null,
+  const chartTuples: CompactChartTuple[] = geometry.points.map((point) => [
+    point.y,
+    point.labelY,
+    point.valueLabel,
+  ]);
+
+  return [
+    toTrendCode(trend),
+    formatPounds({ value: cur.dualFuelAnnualPounds }),
+    nxt ? formatPounds({ value: nxt.dualFuelAnnualPounds }) : null,
     deltaFull,
-    trend,
-    curElecUnit: `${formatPence({ value: cur.electricity.unitRatePence })}`,
-    curElecStanding: `${formatPence({ value: cur.electricity.standingChargePence })}`,
-    curGasUnit: `${formatPence({ value: cur.gas.unitRatePence })}`,
-    curGasStanding: `${formatPence({ value: cur.gas.standingChargePence })}`,
-    nxtElecUnit: nxt ? `${formatPence({ value: nxt.electricity.unitRatePence })}/kWh` : null,
-    nxtElecStanding: nxt
-      ? `${formatPence({ value: nxt.electricity.standingChargePence })}/day`
-      : null,
-    nxtGasUnit: nxt ? `${formatPence({ value: nxt.gas.unitRatePence })}/kWh` : null,
-    nxtGasStanding: nxt ? `${formatPence({ value: nxt.gas.standingChargePence })}/day` : null,
-    chartConnector: geometry.connectorPath,
-    chartPoints: geometry.points.map((point) => ({
-      y: point.y,
-      labelY: point.labelY,
-      valueLabel: point.valueLabel,
-    })),
-  };
+    formatPence({ value: cur.electricity.unitRatePence }),
+    formatPence({ value: cur.electricity.standingChargePence }),
+    formatPence({ value: cur.gas.unitRatePence }),
+    formatPence({ value: cur.gas.standingChargePence }),
+    nxt ? `${formatPence({ value: nxt.electricity.unitRatePence })}/kWh` : null,
+    nxt ? `${formatPence({ value: nxt.electricity.standingChargePence })}/day` : null,
+    nxt ? `${formatPence({ value: nxt.gas.unitRatePence })}/kWh` : null,
+    nxt ? `${formatPence({ value: nxt.gas.standingChargePence })}/day` : null,
+    chartTuples,
+  ];
 }
 
 function buildCompactPayload(params: {
   recentPeriods: ReadonlyArray<{ period: CapPeriod; status: 'current' | 'upcoming' | 'past' }>;
   currentPeriod: CapPeriod;
   upcomingPeriod: CapPeriod | null;
-}): CompactClientPayload {
-  const buildMethodViews = (paymentMethod: PaymentMethodId): Record<RegionId, ClientViewState> => {
-    const viewFor = (regionId: RegionId): ClientViewState => {
-      const meta = REGIONS.find((region) => region.id === regionId);
-      return buildClientView({
+}): CompactMatrixPayload {
+  return PAYMENT_METHODS.map((paymentMethod) =>
+    REGIONS.map((region) =>
+      buildCompactViewTuple({
         recentPeriods: params.recentPeriods,
         currentPeriod: params.currentPeriod,
         upcomingPeriod: params.upcomingPeriod,
         paymentMethod,
-        regionId,
-        regionName: meta ? meta.name : regionId,
-      });
-    };
-
-    return {
-      'gb-average': viewFor('gb-average'),
-      'north-west': viewFor('north-west'),
-      northern: viewFor('northern'),
-      yorkshire: viewFor('yorkshire'),
-      'northern-scotland': viewFor('northern-scotland'),
-      southern: viewFor('southern'),
-      'southern-scotland': viewFor('southern-scotland'),
-      'north-wales-and-mersey': viewFor('north-wales-and-mersey'),
-      london: viewFor('london'),
-      'south-east': viewFor('south-east'),
-      eastern: viewFor('eastern'),
-      'east-midlands': viewFor('east-midlands'),
-      midlands: viewFor('midlands'),
-      'south-west': viewFor('south-west'),
-      'south-wales': viewFor('south-wales'),
-    };
-  };
-
-  return {
-    views: {
-      'direct-debit': buildMethodViews('direct-debit'),
-      prepayment: buildMethodViews('prepayment'),
-      'standard-credit': buildMethodViews('standard-credit'),
-    },
-  };
+        regionId: region.id,
+      }),
+    ),
+  );
 }
 
 function formatVatNote(period: CapPeriod): string {
@@ -252,9 +228,9 @@ export function renderPageHtml(params: {
           <p class="hero-meta">Ofgem announces the next quarterly cap roughly five weeks before it starts.</p>
         </article>`;
 
-  const rateNextLine = (params: { field: string; value: string | null }) =>
-    params.value
-      ? `<p class="rate-next tnum" data-trend-target data-trend="${initialTrend}">${escapeHtml(nextQuarterTag ?? 'Next')} <span data-field="${params.field}">${escapeHtml(params.value)}</span></p>`
+  const rateNextLine = (lineParams: { field: string; value: string | null }) =>
+    lineParams.value
+      ? `<p class="rate-next tnum" data-trend-target data-trend="${initialTrend}">${escapeHtml(nextQuarterTag ?? 'Next')} <span data-field="${lineParams.field}">${escapeHtml(lineParams.value)}</span></p>`
       : `<p class="rate-next rate-next--muted">Current quarter</p>`;
 
   const stepChartSvg = renderStepChartSvg({
@@ -285,7 +261,7 @@ export function renderPageHtml(params: {
     })
     .join('');
 
-  return `<div class="page-frame" data-trend-root data-trend="${initialTrend}">
+  return compactHtml(`<div class="page-frame" data-trend-root data-trend="${initialTrend}">
       <div class="instrument">
         <header class="instrument-header">
           <div class="brand-block">
@@ -396,5 +372,5 @@ export function renderPageHtml(params: {
       </div>
 
       <script type="application/json" id="price-cap-payload">${escapeJsonForScript(JSON.stringify(payload))}</script>
-    </div>`;
+    </div>`);
 }

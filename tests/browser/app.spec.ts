@@ -4,13 +4,14 @@ import { commands } from 'vitest/browser';
 const SITE_URL = 'https://price-cap.streefland.co.uk';
 
 describe('production static build', () => {
-  it('renders complete Design 3 content, SEO metadata, social card, and crawl files without JavaScript', async () => {
+  it('renders complete Design 3 content, SEO metadata, social card, and hides JS-only controls without JavaScript', async () => {
     const result = await commands.productionPage({ mode: 'static' });
     if (result.metadata === undefined) throw new Error('Expected static production metadata');
 
     expect(result.status).toBe(200);
     expect(result.title).toBe('Ofgem price cap');
     expect(result.headingVisible).toBe(true);
+    expect(result.controlsVisible).toBe(false);
     expect(result.creditVisible).toBe(true);
     expect(result.disclaimerVisible).toBe(true);
     expect(result.chartVisible).toBe(true);
@@ -61,13 +62,14 @@ describe('production static build', () => {
     expect(result.unexpectedRequests).toEqual([]);
   });
 
-  it('enforces strict production CSP and updates rates and chart progressively', async () => {
+  it('enforces hash-based strict production CSP and updates rates and chart progressively', async () => {
     const result = await commands.productionPage({ mode: 'security' });
+    expect(result.controlsVisibleWithJs).toBe(true);
     expect(result.londonDual).toMatch(/^£[\d,]+$/);
     expect(result.londonChartLast).toMatch(/^£[\d,]+$/);
     expect(result.initialViolations).toEqual([]);
     expect(result.injectedScriptRan).toBeUndefined();
-    expect(result.violations).toHaveLength(2);
+    expect(result.violations).toHaveLength(3);
     expect(result.unexpectedRequests).toEqual([]);
   });
 

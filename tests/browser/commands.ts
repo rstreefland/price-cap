@@ -62,6 +62,7 @@ export async function productionPage(
         headingVisible: await page
           .getByRole('heading', { name: 'Ofgem price cap', exact: true })
           .isVisible(),
+        controlsVisible: await page.locator('.controls-bar').isVisible(),
         creditVisible: await page.getByText('Created by Rhys Streefland').isVisible(),
         disclaimerVisible: await page.getByText(/use at your own risk/i).isVisible(),
         currentDual: await page.locator('[data-field="cur-dual"]').textContent(),
@@ -133,6 +134,7 @@ export async function productionPage(
       };
     }
 
+    const controlsVisibleWithJs = await page.locator('.controls-bar').isVisible();
     await page.getByLabel('Region', { exact: true }).selectOption('london');
     const londonDual = await page.locator('[data-field="cur-dual"]').textContent();
     const londonChartLast = await page
@@ -144,14 +146,18 @@ export async function productionPage(
       const script = document.createElement('script');
       script.textContent = 'window.injectedScriptRan = true';
       document.body.appendChild(script);
+      const style = document.createElement('style');
+      style.textContent = 'body { background: red; }';
+      document.head.appendChild(style);
       try {
         await fetch('https://unapproved.invalid/');
       } catch {}
     });
 
-    await page.waitForFunction(() => window.cspViolations.length === 2);
+    await page.waitForFunction(() => window.cspViolations.length === 3);
 
     return {
+      controlsVisibleWithJs,
       londonDual,
       londonChartLast,
       initialViolations,

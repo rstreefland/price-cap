@@ -1,18 +1,17 @@
 import type { TrendDirection } from '../domain/priceCap';
-import { PAYMENT_METHODS, REGIONS, type PaymentMethodId, type RegionId } from '../domain/types';
+import { PAYMENT_METHODS, REGIONS } from '../domain/types';
 
-interface ClientChartPoint {
+interface DecodedChartPoint {
   y: string;
   labelY: string;
   valueLabel: string;
 }
 
-interface ClientViewEntry {
-  regionName: string;
+interface DecodedView {
+  trend: TrendDirection;
   curDual: string;
   nxtDual: string | null;
   deltaFull: string | null;
-  trend: TrendDirection;
   curElecUnit: string;
   curElecStanding: string;
   curGasUnit: string;
@@ -21,78 +20,91 @@ interface ClientViewEntry {
   nxtElecStanding: string | null;
   nxtGasUnit: string | null;
   nxtGasStanding: string | null;
-  chartConnector: string;
-  chartPoints: ClientChartPoint[];
+  chartPoints: DecodedChartPoint[];
 }
 
-interface ClientPayload {
-  views: Record<string, Record<string, ClientViewEntry>>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isTrend(value: unknown): value is TrendDirection {
-  return value === 'up' || value === 'down' || value === 'flat';
+function decodeTrend(code: unknown): TrendDirection | null {
+  if (code === 'u') return 'up';
+  if (code === 'd') return 'down';
+  if (code === 'f') return 'flat';
+  return null;
 }
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
-function isChartPoint(value: unknown): value is ClientChartPoint {
-  return (
-    isRecord(value) &&
-    typeof value.y === 'string' &&
-    typeof value.labelY === 'string' &&
-    typeof value.valueLabel === 'string'
-  );
-}
-
-function isClientView(value: unknown): value is ClientViewEntry {
-  return (
-    isRecord(value) &&
-    typeof value.regionName === 'string' &&
-    typeof value.curDual === 'string' &&
-    isNullableString(value.nxtDual) &&
-    isNullableString(value.deltaFull) &&
-    isTrend(value.trend) &&
-    typeof value.curElecUnit === 'string' &&
-    typeof value.curElecStanding === 'string' &&
-    typeof value.curGasUnit === 'string' &&
-    typeof value.curGasStanding === 'string' &&
-    isNullableString(value.nxtElecUnit) &&
-    isNullableString(value.nxtElecStanding) &&
-    isNullableString(value.nxtGasUnit) &&
-    isNullableString(value.nxtGasStanding) &&
-    typeof value.chartConnector === 'string' &&
-    Array.isArray(value.chartPoints) &&
-    value.chartPoints.every(isChartPoint)
-  );
-}
-
-function parseClientPayload(raw: unknown): ClientPayload | null {
-  if (!isRecord(raw) || !isRecord(raw.views)) return null;
-  const views: Record<string, Record<string, ClientViewEntry>> = {};
-  for (const [methodKey, regionMap] of Object.entries(raw.views)) {
-    if (!isRecord(regionMap)) return null;
-    const parsedRegions: Record<string, ClientViewEntry> = {};
-    for (const [regionKey, entry] of Object.entries(regionMap)) {
-      if (!isClientView(entry)) return null;
-      parsedRegions[regionKey] = entry;
+function decodeChartPoints(raw: unknown): DecodedChartPoint[] | null {
+  if (!Array.isArray(raw)) return null;
+  const points: DecodedChartPoint[] = [];
+  for (const item of raw) {
+    if (
+      !Array.isArray(item) ||
+      item.length !== 3 ||
+      typeof item[0] !== 'string' ||
+      typeof item[1] !== 'string' ||
+      typeof item[2] !== 'string'
+    ) {
+      return null;
     }
-    views[methodKey] = parsedRegions;
+    points.push({ y: item[0], labelY: item[1], valueLabel: item[2] });
   }
-  return { views };
+  return points;
 }
 
-function isRegionId(value: string): value is RegionId {
-  return REGIONS.some((region) => region.id === value);
+function decodeView(raw: unknown): DecodedView | null {
+  if (!Array.isArray(raw) || raw.length !== 13) return null;
+  const trend = decodeTrend(raw[0]);
+  if (!trend) return null;
+  if (
+    typeof raw[1] !== 'string' ||
+    !isNullableString(raw[2]) ||
+    !isNullableString(raw[3]) ||
+    typeof raw[4] !== 'string' ||
+    typeof raw[5] !== 'string' ||
+    typeof raw[6] !== 'string' ||
+    typeof raw[7] !== 'string' ||
+    !isNullableString(raw[8]) ||
+    !isNullableString(raw[9]) ||
+    !isNullableString(raw[10]) ||
+    !isNullableString(raw[11])
+  ) {
+    return null;
+  }
+  const chartPoints = decodeChartPoints(raw[12]);
+  if (!chartPoints) return null;
+
+  return {
+    trend,
+    curDual: raw[1],
+    nxtDual: raw[2],
+    deltaFull: raw[3],
+    curElecUnit: raw[4],
+    curElecStanding: raw[5],
+    curGasUnit: raw[6],
+    curGasStanding: raw[7],
+    nxtElecUnit: raw[8],
+    nxtElecStanding: raw[9],
+    nxtGasUnit: raw[10],
+    nxtGasStanding: raw[11],
+    chartPoints,
+  };
 }
 
-function isPaymentMethodId(value: string): value is PaymentMethodId {
-  return PAYMENT_METHODS.some((method) => method === value);
+function parseMatrixPayload(raw: unknown): DecodedView[][] | null {
+  if (!Array.isArray(raw) || raw.length !== PAYMENT_METHODS.length) return null;
+  const matrix: DecodedView[][] = [];
+  for (const row of raw) {
+    if (!Array.isArray(row) || row.length !== REGIONS.length) return null;
+    const views: DecodedView[] = [];
+    for (const cell of row) {
+      const decoded = decodeView(cell);
+      if (!decoded) return null;
+      views.push(decoded);
+    }
+    matrix.push(views);
+  }
+  return matrix;
 }
 
 function setFieldText(root: ParentNode, field: string, value: string | null): void {
@@ -122,16 +134,19 @@ export function initPriceCapControls(root: Document = document): void {
     return;
   }
 
-  const payload = parseClientPayload(parsedJson);
-  if (!payload) return;
+  const matrix = parseMatrixPayload(parsedJson);
+  if (!matrix) return;
 
   const updateView = () => {
-    const region = isRegionId(regionSelect.value) ? regionSelect.value : 'gb-average';
-    const payment = isPaymentMethodId(paymentSelect.value) ? paymentSelect.value : 'direct-debit';
-    const view = payload.views[payment]?.[region];
-    if (!view) return;
+    const regionIndex = REGIONS.findIndex((region) => region.id === regionSelect.value);
+    const paymentIndex = PAYMENT_METHODS.findIndex((method) => method === paymentSelect.value);
+    const safeRegionIndex = regionIndex >= 0 ? regionIndex : 0;
+    const safePaymentIndex = paymentIndex >= 0 ? paymentIndex : 0;
 
-    setFieldText(root, 'region-name', view.regionName);
+    const view = matrix[safePaymentIndex][safeRegionIndex];
+    const regionMeta = REGIONS[safeRegionIndex];
+
+    setFieldText(root, 'region-name', regionMeta.name);
     setFieldText(root, 'cur-dual', view.curDual);
     setFieldText(root, 'nxt-dual', view.nxtDual);
     setFieldText(root, 'delta-full', view.deltaFull);
@@ -150,25 +165,31 @@ export function initPriceCapControls(root: Document = document): void {
         node.setAttribute('data-trend', view.trend);
       });
 
-    const connector = root.querySelector('[data-chart-connector]');
-    if (connector) {
-      connector.setAttribute('d', view.chartConnector);
-    }
-
+    const pathSegments: string[] = [];
     view.chartPoints.forEach((point, index) => {
       const group = root.querySelector(`[data-chart-step="${index}"]`);
       if (!group) return;
       const bar = group.querySelector('.chart-step-bar');
       const valueText = group.querySelector('.chart-step-value');
       if (bar) {
+        const x1 = bar.getAttribute('x1');
+        const x2 = bar.getAttribute('x2');
         bar.setAttribute('y1', point.y);
         bar.setAttribute('y2', point.y);
+        if (x1 && x2) {
+          pathSegments.push(`${index === 0 ? 'M' : 'L'} ${x1} ${point.y} L ${x2} ${point.y}`);
+        }
       }
       if (valueText) {
         valueText.setAttribute('y', point.labelY);
         valueText.textContent = point.valueLabel;
       }
     });
+
+    const connector = root.querySelector('[data-chart-connector]');
+    if (connector && pathSegments.length > 0) {
+      connector.setAttribute('d', pathSegments.join(' '));
+    }
   };
 
   regionSelect.addEventListener('change', updateView);
