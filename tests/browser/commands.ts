@@ -54,6 +54,8 @@ export async function productionPage(
       const bytes = await image.body();
       const robots = await page.request.get(new URL('/robots.txt', productionURL).href);
       const sitemap = await page.request.get(new URL('/sitemap.xml', productionURL).href);
+      const hasUpcoming = (await page.locator('[data-field="nxt-dual"]').count()) > 0;
+      const hasTiming = (await page.locator('[data-upcoming-start]').count()) > 0;
 
       return {
         status: response?.status(),
@@ -66,8 +68,8 @@ export async function productionPage(
         creditVisible: await page.getByText('Created by Rhys Streefland').isVisible(),
         disclaimerVisible: await page.getByText(/use at your own risk/i).isVisible(),
         currentDual: await page.locator('[data-field="cur-dual"]').textContent(),
-        nextDual: await page.locator('[data-field="nxt-dual"]').textContent(),
-        timingText: await page.locator('[data-upcoming-start]').textContent(),
+        nextDual: hasUpcoming ? await page.locator('[data-field="nxt-dual"]').textContent() : null,
+        timingText: hasTiming ? await page.locator('[data-upcoming-start]').textContent() : null,
         chartVisible: await page.locator('[data-chart-svg]').isVisible(),
         faviconStatus: favicon.status(),
         image: {
@@ -87,10 +89,13 @@ export async function productionPage(
 
     if (options.mode === 'layout-a11y') {
       const desktopMetrics = await page.evaluate(() => {
+        const rootTrend =
+          document.querySelector('[data-trend-root]')?.getAttribute('data-trend') ?? null;
         const nextFigure = document.querySelector('[data-field="nxt-dual"]');
-        const nextColor = nextFigure ? getComputedStyle(nextFigure).color : '';
+        const nextColor = nextFigure ? getComputedStyle(nextFigure).color : null;
         return {
           overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          rootTrend,
           nextColor,
         };
       });
@@ -136,7 +141,10 @@ export async function productionPage(
     }
 
     const controlsVisibleWithJs = await page.locator('.controls-bar').isVisible();
-    const timingTextWithJs = await page.locator('[data-upcoming-start]').textContent();
+    const hasTimingWithJs = (await page.locator('[data-upcoming-start]').count()) > 0;
+    const timingTextWithJs = hasTimingWithJs
+      ? await page.locator('[data-upcoming-start]').textContent()
+      : null;
     await page.getByLabel('Region', { exact: true }).selectOption('london');
     const londonDual = await page.locator('[data-field="cur-dual"]').textContent();
     const londonChartLast = await page

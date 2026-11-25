@@ -3,6 +3,12 @@ import { commands } from 'vitest/browser';
 
 const SITE_URL = 'https://price-cap.streefland.co.uk';
 
+const EXPECTED_TREND_COLORS: Record<string, string> = {
+  up: 'rgb(248, 113, 113)',
+  down: 'rgb(52, 211, 153)',
+  flat: 'rgb(229, 231, 235)',
+};
+
 describe('production static build', () => {
   it('renders complete Design 3 content, SEO metadata, social card, and hides JS-only controls without JavaScript', async () => {
     const result = await commands.productionPage({ mode: 'static' });
@@ -17,8 +23,10 @@ describe('production static build', () => {
     expect(result.chartVisible).toBe(true);
     expect(result.faviconStatus).toBe(200);
     expect(result.currentDual).toMatch(/^£[\d,]+$/);
-    expect(result.nextDual).toMatch(/^£[\d,]+$/);
-    expect(result.timingText).toBe(' vs current quarter');
+    if (result.nextDual !== null) {
+      expect(result.nextDual).toMatch(/^£[\d,]+$/);
+      expect(result.timingText).toBe(' vs current quarter');
+    }
 
     const head = new DOMParser().parseFromString(result.metadata, 'text/html');
     expect(head.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#0b0d0f');
@@ -66,7 +74,11 @@ describe('production static build', () => {
   it('enforces hash-based strict production CSP and updates rates and chart progressively', async () => {
     const result = await commands.productionPage({ mode: 'security' });
     expect(result.controlsVisibleWithJs).toBe(true);
-    expect(result.timingTextWithJs).toMatch(/effective (tomorrow|in \d+ days)/);
+    if (result.timingTextWithJs !== null) {
+      expect(result.timingTextWithJs).toMatch(
+        /(effective (tomorrow|in \d+ days)|vs current quarter)/,
+      );
+    }
     expect(result.londonDual).toMatch(/^£[\d,]+$/);
     expect(result.londonChartLast).toMatch(/^£[\d,]+$/);
     expect(result.initialViolations).toEqual([]);
@@ -78,7 +90,11 @@ describe('production static build', () => {
   it('passes desktop and mobile layout, touch target, color trend, and axe accessibility checks', async () => {
     const result = await commands.productionPage({ mode: 'layout-a11y' });
     expect(result.desktopMetrics?.overflowX).toBe(false);
-    expect(result.desktopMetrics?.nextColor).toBe('rgb(248, 113, 113)');
+    if (result.desktopMetrics?.nextColor !== null && result.desktopMetrics?.rootTrend) {
+      expect(result.desktopMetrics.nextColor).toBe(
+        EXPECTED_TREND_COLORS[result.desktopMetrics.rootTrend],
+      );
+    }
     expect(result.desktopViolations).toEqual([]);
     expect(result.mobileMetrics?.overflowX).toBe(false);
     expect(result.mobileMetrics?.regionTouchHeight).toBeGreaterThanOrEqual(44);

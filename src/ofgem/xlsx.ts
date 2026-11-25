@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 
 export interface SheetCell {
@@ -27,9 +28,11 @@ function decodeXmlEntities(text: string): string {
 }
 
 function getAttribute(tagText: string, attributeName: string): string | null {
-  const pattern = new RegExp(`\\b${attributeName}\\s*=\\s*"([^"]*)"`);
+  const pattern = new RegExp(`\\b${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`);
   const match = pattern.exec(tagText);
-  return match ? decodeXmlEntities(match[1]) : null;
+  if (!match) return null;
+  const raw = match[1] ?? match[2] ?? '';
+  return decodeXmlEntities(raw);
 }
 
 function parseSharedStrings(xml: string): string[] {
@@ -68,6 +71,11 @@ function parseRelationships(xml: string): Map<string, string> {
   return map;
 }
 
+function normaliseWorksheetPath(target: string): string {
+  const joined = target.startsWith('/') ? target.slice(1) : posix.join('xl', target);
+  return posix.normalize(joined).replace(/^\/+/, '');
+}
+
 function parseSheetTargets(params: {
   workbookXml: string;
   relationships: Map<string, string>;
@@ -82,8 +90,7 @@ function parseSheetTargets(params: {
     if (name && relId) {
       const target = params.relationships.get(relId);
       if (target) {
-        const normalised = target.startsWith('/') ? target.slice(1) : `xl/${target}`;
-        targets.set(name, normalised);
+        targets.set(name, normaliseWorksheetPath(target));
       }
     }
     match = sheetPattern.exec(params.workbookXml);
@@ -99,61 +106,66 @@ function parseWorksheetRows(params: { xml: string; sharedStrings: string[] }): S
   const formulaPattern = /<f\b[^>]*>([\s\S]*?)<\/f>/;
   const inlineTextPattern = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
 
+  let nextImplicitRow = 1;
   let rowMatch: RegExpExecArray | null = rowPattern.exec(params.xml);
   while (rowMatch !== null) {
     const rowNumberText = getAttribute(rowMatch[1], 'r');
-    if (rowNumberText) {
-      const rowNumber = Number.parseInt(rowNumberText, 10);
-      const rowCells = new Map<string, SheetCell>();
-      const rowInner = rowMatch[2];
-      cellPattern.lastIndex = 0;
-      let cellMatch: RegExpExecArray | null = cellPattern.exec(rowInner);
+    const parsedRowNumber = rowNumberText ? Number.parseInt(rowNumberText, 10) : nextImplicitRow;
+    const rowNumber = Number.isNaN(parsedRowNumber) ? nextImplicitRow : parsedRowNumber;
+    nextImplicitRow = rowNumber + 1;
 
-      while (cellMatch !== null) {
-        const cellAttrs = cellMatch[1];
-        const cellInner = cellMatch[2] ?? '';
-        const ref = getAttribute(cellAttrs, 'r');
-        const colMatch = ref ? /^([A-Z]+)/.exec(ref) : null;
+    const rowCells = new Map<string, SheetCell>();
+    const rowInner = rowMatch[2];
+    cellPattern.lastIndex = 0;
+    let cellMatch: RegExpExecArray | null = cellPattern.exec(rowInner);
 
-        if (colMatch) {
-          const col = colMatch[1];
-          const type = getAttribute(cellAttrs, 't');
-          const formulaMatch = formulaPattern.exec(cellInner);
-          const formula = formulaMatch ? decodeXmlEntities(formulaMatch[1]) : undefined;
-          let value: string | null = null;
+    while (cellMatch !== null) {
+      const cellAttrs = cellMatch[1];
+      const cellInner = cellMatch[2] ?? '';
+      const ref = getAttribute(cellAttrs, 'r');
+      const colMatch = ref ? /^([A-Z]+)/.exec(ref) : null;
 
-          if (type === 'inlineStr') {
-            inlineTextPattern.lastIndex = 0;
-            let text = '';
-            let inlineMatch: RegExpExecArray | null = inlineTextPattern.exec(cellInner);
-            while (inlineMatch !== null) {
-              text += decodeXmlEntities(inlineMatch[1]);
-              inlineMatch = inlineTextPattern.exec(cellInner);
-            }
-            value = text;
-          } else {
-            const valueMatch = valuePattern.exec(cellInner);
-            if (valueMatch) {
-              const rawValue = decodeXmlEntities(valueMatch[1]);
-              if (type === 's') {
-                const index = Number.parseInt(rawValue, 10);
-                value = params.sharedStrings[index] ?? '';
-              } else {
-                value = rawValue;
-              }
-            }
+      if (colMatch) {
+        const col = colMatch[1];
+        const type = getAttribute(cellAttrs, 't');
+        const formulaMatch = formulaPattern.exec(cellInner);
+        const formula = formulaMatch ? decodeXmlEntities(formulaMatch[1]) : undefined;
+        let value: string | null = null;
+
+        if (type === 'inlineStr') {
+          inlineTextPattern.lastIndex = 0;
+          let text = '';
+          let inlineMatch: RegExpExecArray | null = inlineTextPattern.exec(cellInner);
+          while (inlineMatch !== null) {
+            text += decodeXmlEntities(inlineMatch[1]);
+            inlineMatch = inlineTextPattern.exec(cellInner);
           }
-
-          if (value !== null) {
-            rowCells.set(col, { col, value, formula });
+          value = text;
+        } else {
+          const valueMatch = valuePattern.exec(cellInner);
+          if (valueMatch) {
+            const rawValue = decodeXmlEntities(valueMatch[1]);
+            if (type === 's') {
+              const index = Number.parseInt(rawValue, 10);
+              if (Number.isNaN(index) || index < 0 || index >= params.sharedStrings.length) {
+                throw new Error(`Invalid shared string index ${rawValue} at cell ${ref ?? col}.`);
+              }
+              value = params.sharedStrings[index];
+            } else {
+              value = rawValue;
+            }
           }
         }
-        cellMatch = cellPattern.exec(rowInner);
-      }
 
-      if (rowCells.size > 0) {
-        rows.set(rowNumber, rowCells);
+        if (value !== null) {
+          rowCells.set(col, { col, value, formula });
+        }
       }
+      cellMatch = cellPattern.exec(rowInner);
+    }
+
+    if (rowCells.size > 0) {
+      rows.set(rowNumber, rowCells);
     }
     rowMatch = rowPattern.exec(params.xml);
   }

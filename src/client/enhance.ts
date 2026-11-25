@@ -256,6 +256,20 @@ export function initPriceCapControls(root: Document = document): void {
 
   regionSelect.addEventListener('change', updateView);
   paymentSelect.addEventListener('change', updateView);
+
+  if (regionSelect.value !== 'gb-average' || paymentSelect.value !== 'direct-debit') {
+    updateView();
+  }
+
+  const win = root.defaultView;
+  if (win) {
+    win.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        initCountdown({ root });
+        updateView();
+      }
+    });
+  }
 }
 
 if (typeof document !== 'undefined') {

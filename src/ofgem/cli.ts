@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { parsePriceCapDataset } from '../api/schema';
 import { formatPence, formatPounds } from '../domain/decimal';
 import { nowIsoInstant } from '../domain/time';
 import { discoverLatestAnnex9Workbook, OFGEM_INDEX_URL } from './discover';
@@ -29,6 +30,16 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+async function readExistingLatestPeriodId(resolvedPath: string): Promise<string | null> {
+  try {
+    const existingText = await readFile(resolvedPath, 'utf8');
+    const existing = parsePriceCapDataset(JSON.parse(existingText));
+    return existing.source.latestAnnouncedPeriodId;
+  } catch {
+    return null;
+  }
+}
+
 export async function runOfgemUpdate(outputPath: string): Promise<void> {
   const indexHtml = await fetchText(OFGEM_INDEX_URL);
   const discovered = discoverLatestAnnex9Workbook(indexHtml);
@@ -42,6 +53,13 @@ export async function runOfgemUpdate(outputPath: string): Promise<void> {
   });
 
   const resolvedOutput = resolve(outputPath);
+  const existingLatestId = await readExistingLatestPeriodId(resolvedOutput);
+  if (existingLatestId && dataset.source.latestAnnouncedPeriodId < existingLatestId) {
+    throw new Error(
+      `Refusing to regress latest announced period from ${existingLatestId} to ${dataset.source.latestAnnouncedPeriodId} (${discovered.workbookFilename}).`,
+    );
+  }
+
   await mkdir(dirname(resolvedOutput), { recursive: true });
   await writeFile(resolvedOutput, `${JSON.stringify(dataset, null, 2)}\n`, 'utf8');
 

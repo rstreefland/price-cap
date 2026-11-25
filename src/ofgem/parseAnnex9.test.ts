@@ -205,6 +205,14 @@ describe('parseAnnex9Workbook', () => {
       endDateInclusive: '2027-03-31',
       endDateExclusive: '2027-04-01',
     });
+    expect(parseOfgemPeriodHeading('January - March 2027')).toEqual({
+      id: '2027-01',
+      label: '1 Jan to 31 Mar 2027',
+      shortLabel: 'Jan to Mar 2027',
+      startDate: '2027-01-01',
+      endDateInclusive: '2027-03-31',
+      endDateExclusive: '2027-04-01',
+    });
     expect(parseOfgemPeriodHeading('Invalid label')).toBeNull();
 
     expect(tdcvForPeriodStart('2019-01-01')).toEqual({
@@ -280,5 +288,171 @@ describe('parseAnnex9Workbook', () => {
     });
     expect(() => wb.readSheet('Missing')).toThrow('Worksheet "Missing" not found');
     expect(() => openXlsxWorkbook(zipSync({}))).toThrow('Invalid XLSX workbook');
+  });
+
+  it('handles single-quoted XML attributes, relative targets, implicit row numbers, and out-of-bounds shared strings', () => {
+    const sharedStringsXml =
+      "<?xml version='1.0' encoding='UTF-8'?><sst xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><si><t>Value</t></si></sst>";
+    const workbookXml =
+      "<?xml version='1.0' encoding='UTF-8'?><workbook xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main' xmlns:r='http://schemas.openxmlformats.org/officeDocument/2006/relationships'><sheets><sheet name='S' sheetId='1' r:id='rId1' /></sheets></workbook>";
+    const relsXml =
+      "<?xml version='1.0' encoding='UTF-8'?><Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'><Relationship Id='rId1' Target='./worksheets/sheet1.xml' /></Relationships>";
+    const sheetXml =
+      "<?xml version='1.0' encoding='UTF-8'?><worksheet xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><sheetData><row><c r='A1' t='s'><v>0</v></c></row></sheetData></worksheet>";
+
+    const wb = openXlsxWorkbook(
+      zipSync({
+        'xl/workbook.xml': strToU8(workbookXml),
+        'xl/_rels/workbook.xml.rels': strToU8(relsXml),
+        'xl/sharedStrings.xml': strToU8(sharedStringsXml),
+        'xl/worksheets/sheet1.xml': strToU8(sheetXml),
+      }),
+    );
+    expect(wb.readSheet('S').get(1)?.get('A')?.value).toBe('Value');
+
+    const badSheetXml =
+      "<?xml version='1.0' encoding='UTF-8'?><worksheet xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><sheetData><row r='1'><c r='A1' t='s'><v>99</v></c></row></sheetData></worksheet>";
+    const badWb = openXlsxWorkbook(
+      zipSync({
+        'xl/workbook.xml': strToU8(workbookXml),
+        'xl/_rels/workbook.xml.rels': strToU8(relsXml),
+        'xl/sharedStrings.xml': strToU8(sharedStringsXml),
+        'xl/worksheets/sheet1.xml': strToU8(badSheetXml),
+      }),
+    );
+    expect(() => badWb.readSheet('S')).toThrow('Invalid shared string index 99');
+  });
+
+  it('rejects VAT mismatches in 1a Levelised DTC, TDCV mismatches in 1c, unparseable 1a!C6, and 2b/2c column drift', () => {
+    const workbookXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets>
+          <sheet name="1a Levelised DTC" sheetId="1" r:id="rId1" />
+          <sheet name="1c Consumption adjusted levels" sheetId="2" r:id="rId2" />
+          <sheet name="2a Historical_Other" sheetId="3" r:id="rId3" />
+          <sheet name="2b Historical_SC" sheetId="4" r:id="rId4" />
+          <sheet name="2c Historical_PPM" sheetId="5" r:id="rId5" />
+        </sheets>
+      </workbook>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Target="worksheets/sheet1.xml" />
+        <Relationship Id="rId2" Target="worksheets/sheet2.xml" />
+        <Relationship Id="rId3" Target="worksheets/sheet3.xml" />
+        <Relationship Id="rId4" Target="worksheets/sheet4.xml" />
+        <Relationship Id="rId5" Target="worksheets/sheet5.xml" />
+      </Relationships>`;
+
+    const base2a = buildPaymentSheetXml({
+      keyToken: 'Other',
+      elecNilOct: '200.1295',
+      elecBenchOct: '858.1295',
+      gasNilOct: '103.17333333333333',
+      gasBenchOct: '824.22095238095238',
+      elecNilJan: '199.89928571428572',
+      elecBenchJan: '1017.1607142857143',
+      gasNilJan: '103.05857142857143',
+      gasBenchJan: '1094.4735714285712',
+    });
+    const base2b = buildPaymentSheetXml({
+      keyToken: 'SC',
+      elecNilOct: '231.00',
+      elecBenchOct: '920.00',
+      gasNilOct: '130.00',
+      gasBenchOct: '890.00',
+      elecNilJan: '231.29',
+      elecBenchJan: '1094.23',
+      gasNilJan: '129.93',
+      gasBenchJan: '1174.57',
+    });
+    const base2c = buildPaymentSheetXml({
+      keyToken: 'PPM',
+      elecNilOct: '200.13',
+      elecBenchOct: '838.00',
+      gasNilOct: '103.17',
+      gasBenchOct: '799.00',
+      elecNilJan: '199.90',
+      elecBenchJan: '992.30',
+      gasNilJan: '103.06',
+      gasBenchJan: '1062.49',
+    });
+
+    const valid1a = buildSheetXml([
+      { r: 6, cells: [{ ref: 'C6', value: 'January 2027 - March 2027', isString: true }] },
+      {
+        r: 28,
+        cells: [
+          { ref: 'D28', value: '1017.1607' },
+          { ref: 'H28', value: '1094.4736' },
+        ],
+      },
+      {
+        r: 29,
+        cells: [
+          { ref: 'D29', value: '1017.1607' },
+          { ref: 'H29', value: '1149.1972' },
+          { ref: 'J29', value: '2166.3579' },
+        ],
+      },
+    ]);
+    const valid1c = buildSheetXml([
+      { r: 7, cells: [{ ref: 'C7', value: '2.5' }] },
+      { r: 9, cells: [{ ref: 'C9', value: '9.5' }] },
+    ]);
+
+    const parseWith = (overrides: Record<string, string>) =>
+      parseAnnex9Workbook({
+        bytes: zipSync({
+          'xl/workbook.xml': strToU8(workbookXml),
+          'xl/_rels/workbook.xml.rels': strToU8(relsXml),
+          'xl/worksheets/sheet1.xml': strToU8(overrides.s1 ?? valid1a),
+          'xl/worksheets/sheet2.xml': strToU8(overrides.s2 ?? valid1c),
+          'xl/worksheets/sheet3.xml': strToU8(overrides.s3 ?? base2a),
+          'xl/worksheets/sheet4.xml': strToU8(overrides.s4 ?? base2b),
+          'xl/worksheets/sheet5.xml': strToU8(overrides.s5 ?? base2c),
+        }),
+        indexUrl: 'https://www.ofgem.gov.uk/index',
+        workbookUrl: 'https://www.ofgem.gov.uk/annex-9.xlsx',
+        workbookFilename: 'annex-9.xlsx',
+        generatedAt: '2026-11-25T10:00:00Z',
+      });
+
+    expect(parseWith({}).source.latestAnnouncedPeriodId).toBe('2027-01');
+
+    const badVat1a = buildSheetXml([
+      { r: 6, cells: [{ ref: 'C6', value: 'January 2027 - March 2027', isString: true }] },
+      {
+        r: 28,
+        cells: [
+          { ref: 'D28', value: '1017.1607' },
+          { ref: 'H28', value: '1094.4736' },
+        ],
+      },
+      {
+        r: 29,
+        cells: [
+          { ref: 'D29', value: '1068.0187' },
+          { ref: 'H29', value: '1149.1972' },
+          { ref: 'J29', value: '2217.2159' },
+        ],
+      },
+    ]);
+    expect(() => parseWith({ s1: badVat1a })).toThrow('electricity VAT mismatch');
+
+    const badTdcv1c = buildSheetXml([
+      { r: 7, cells: [{ ref: 'C7', value: '2.9' }] },
+      { r: 9, cells: [{ ref: 'C9', value: '9.5' }] },
+    ]);
+    expect(() => parseWith({ s2: badTdcv1c })).toThrow('TDCV mismatch');
+
+    const badC6 = buildSheetXml([
+      { r: 6, cells: [{ ref: 'C6', value: 'Not a period', isString: true }] },
+    ]);
+    expect(() => parseWith({ s1: badC6 })).toThrow('Could not parse active period heading');
+
+    const drifted2b = base2b.replace('January 2027 - March 2027', 'April 2027 - June 2027');
+    expect(() => parseWith({ s4: drifted2b })).toThrow(
+      'Column S period mismatch in "2b Historical_SC"',
+    );
   });
 });

@@ -12,10 +12,13 @@ import {
   type RegionId,
   type RegionalRates,
 } from '../domain/types';
-import { openXlsxWorkbook, type SheetRows } from './xlsx';
+import { openXlsxWorkbook, type SheetRows, type WorkbookArchive } from './xlsx';
 
 const DAYS_PER_YEAR = decimal(365);
 const PENCE_PER_POUND = decimal(100);
+const KWH_PER_MWH = decimal(1000);
+const VAT_RATE_TOLERANCE = decimal('0.0005');
+const HEADLINE_BILL_TOLERANCE = decimal('0.5');
 
 const MONTH_NAME_TO_NUMBER: Record<string, number> = {
   january: 1,
@@ -78,14 +81,32 @@ function columnLettersToIndex(col: string): number {
 
 export function parseOfgemPeriodHeading(heading: string): Omit<ParsedPeriodHeader, 'col'> | null {
   const cleaned = heading.replace(/\u2013|\u2014/g, '-').trim();
-  const match = /^([A-Za-z]+)\s+(\d{4})\s*-\s*([A-Za-z]+)\s+(\d{4})$/.exec(cleaned);
-  if (!match) return null;
+  const fullMatch = /^([A-Za-z]+)\s+(\d{4})\s*-\s*([A-Za-z]+)\s+(\d{4})$/.exec(cleaned);
+  const sameYearMatch = !fullMatch
+    ? /^([A-Za-z]+)\s*-\s*([A-Za-z]+)\s+(\d{4})$/.exec(cleaned)
+    : null;
 
-  const startMonth = MONTH_NAME_TO_NUMBER[match[1].toLowerCase()];
-  const startYear = Number.parseInt(match[2], 10);
-  const endMonth = MONTH_NAME_TO_NUMBER[match[3].toLowerCase()];
-  const endYear = Number.parseInt(match[4], 10);
+  let startMonthName: string;
+  let startYear: number;
+  let endMonthName: string;
+  let endYear: number;
 
+  if (fullMatch) {
+    startMonthName = fullMatch[1];
+    startYear = Number.parseInt(fullMatch[2], 10);
+    endMonthName = fullMatch[3];
+    endYear = Number.parseInt(fullMatch[4], 10);
+  } else if (sameYearMatch) {
+    startMonthName = sameYearMatch[1];
+    endMonthName = sameYearMatch[2];
+    startYear = Number.parseInt(sameYearMatch[3], 10);
+    endYear = startYear;
+  } else {
+    return null;
+  }
+
+  const startMonth = MONTH_NAME_TO_NUMBER[startMonthName.toLowerCase()];
+  const endMonth = MONTH_NAME_TO_NUMBER[endMonthName.toLowerCase()];
   if (!startMonth || !endMonth) return null;
 
   const start = Temporal.PlainDate.from({ year: startYear, month: startMonth, day: 1 });
@@ -300,6 +321,90 @@ function buildRegionalMapForSheet(params: {
   };
 }
 
+function verifyWorkbookVatAndHeadline(params: {
+  outputSheet: SheetRows;
+  activePeriod: CapPeriod;
+}): void {
+  const exclRow = params.outputSheet.get(28);
+  const incRow = params.outputSheet.get(29);
+  if (!exclRow || !incRow) return;
+
+  const elecExclRaw = exclRow.get('D')?.value;
+  const elecIncRaw = incRow.get('D')?.value;
+  const gasExclRaw = exclRow.get('H')?.value;
+  const gasIncRaw = incRow.get('H')?.value;
+  const dualIncRaw = incRow.get('J')?.value;
+
+  if (
+    !elecExclRaw ||
+    !elecIncRaw ||
+    !gasExclRaw ||
+    !gasIncRaw ||
+    !dualIncRaw ||
+    !isDecimalNumberText(elecExclRaw) ||
+    !isDecimalNumberText(elecIncRaw) ||
+    !isDecimalNumberText(gasExclRaw) ||
+    !isDecimalNumberText(gasIncRaw) ||
+    !isDecimalNumberText(dualIncRaw)
+  ) {
+    return;
+  }
+
+  const actualElecVat = decimal(elecIncRaw).div(decimal(elecExclRaw)).minus(1);
+  const expectedElecVat = decimal(params.activePeriod.vat.electricityRate);
+  if (actualElecVat.minus(expectedElecVat).abs().gt(VAT_RATE_TOLERANCE)) {
+    throw new Error(
+      `Annex 9 electricity VAT mismatch for ${params.activePeriod.id}: workbook implies ${fixed({ value: actualElecVat, places: 4 })}, expected ${params.activePeriod.vat.electricityRate}.`,
+    );
+  }
+
+  const actualGasVat = decimal(gasIncRaw).div(decimal(gasExclRaw)).minus(1);
+  const expectedGasVat = decimal(params.activePeriod.vat.gasRate);
+  if (actualGasVat.minus(expectedGasVat).abs().gt(VAT_RATE_TOLERANCE)) {
+    throw new Error(
+      `Annex 9 gas VAT mismatch for ${params.activePeriod.id}: workbook implies ${fixed({ value: actualGasVat, places: 4 })}, expected ${params.activePeriod.vat.gasRate}.`,
+    );
+  }
+
+  const derivedDual = decimal(
+    params.activePeriod.rates['direct-debit']['gb-average'].dualFuelAnnualPounds,
+  );
+  const sheetDual = decimal(dualIncRaw);
+  if (derivedDual.minus(sheetDual).abs().gt(HEADLINE_BILL_TOLERANCE)) {
+    throw new Error(
+      `Annex 9 GB average headline mismatch for ${params.activePeriod.id}: derived ${fixed({ value: derivedDual, places: 2 })}, workbook 1a!J29 is ${fixed({ value: sheetDual, places: 2 })}.`,
+    );
+  }
+}
+
+function verifyWorkbookTdcv(params: { workbook: WorkbookArchive; latestPeriod: CapPeriod }): void {
+  const sheetName = '1c Consumption adjusted levels';
+  if (!params.workbook.sheetNames.includes(sheetName)) return;
+
+  const sheet = params.workbook.readSheet(sheetName);
+  const elecMwhRaw = sheet.get(7)?.get('C')?.value;
+  const gasMwhRaw = sheet.get(9)?.get('C')?.value;
+  if (
+    !elecMwhRaw ||
+    !gasMwhRaw ||
+    !isDecimalNumberText(elecMwhRaw) ||
+    !isDecimalNumberText(gasMwhRaw)
+  ) {
+    return;
+  }
+
+  const sheetElecKwh = decimal(elecMwhRaw).times(KWH_PER_MWH);
+  const sheetGasKwh = decimal(gasMwhRaw).times(KWH_PER_MWH);
+  const expectedElecKwh = decimal(params.latestPeriod.tdcv.electricitySingleKwh);
+  const expectedGasKwh = decimal(params.latestPeriod.tdcv.gasKwh);
+
+  if (!sheetElecKwh.eq(expectedElecKwh) || !sheetGasKwh.eq(expectedGasKwh)) {
+    throw new Error(
+      `Annex 9 TDCV mismatch for ${params.latestPeriod.id}: workbook reports ${sheetElecKwh.toString()}/${sheetGasKwh.toString()} kWh, expected ${params.latestPeriod.tdcv.electricitySingleKwh}/${params.latestPeriod.tdcv.gasKwh} kWh.`,
+    );
+  }
+}
+
 export function parseAnnex9Workbook(params: {
   bytes: Uint8Array;
   indexUrl: string;
@@ -309,28 +414,44 @@ export function parseAnnex9Workbook(params: {
 }): PriceCapDataset {
   const workbook = openXlsxWorkbook(params.bytes);
   const outputSheet = workbook.readSheet('1a Levelised DTC');
-  const activeHeadingCell = outputSheet.get(6)?.get('C');
-  const activeParsed = activeHeadingCell ? parseOfgemPeriodHeading(activeHeadingCell.value) : null;
+  const activeHeadingRaw = outputSheet.get(6)?.get('C')?.value.trim() ?? '';
+  let activeParsed: Omit<ParsedPeriodHeader, 'col'> | null = null;
+  if (activeHeadingRaw) {
+    activeParsed = parseOfgemPeriodHeading(activeHeadingRaw);
+    if (!activeParsed) {
+      throw new Error(
+        `Could not parse active period heading in "1a Levelised DTC"!C6: "${activeHeadingRaw}".`,
+      );
+    }
+  }
 
   const sheetMaps = new Map<PaymentMethodId, Map<string, Map<string, string>>>();
-  let primaryHeaderRow: Map<string, { value: string }> | null = null;
+  const headerRows = new Map<PaymentMethodId, Map<string, { value: string }>>();
 
   for (const sheetDef of PAYMENT_SHEETS) {
     const sheetRows = workbook.readSheet(sheetDef.sheetName);
-    if (sheetDef.paymentMethod === 'direct-debit') {
-      primaryHeaderRow = sheetRows.get(9) ?? null;
+    const headerRow = sheetRows.get(9);
+    if (!headerRow) {
+      throw new Error(`Annex 9 sheet "${sheetDef.sheetName}" is missing period header row 9.`);
     }
+    headerRows.set(sheetDef.paymentMethod, headerRow);
     sheetMaps.set(sheetDef.paymentMethod, indexRowsByKey(sheetRows));
   }
 
-  if (!primaryHeaderRow) {
-    throw new Error('Annex 9 sheet "2a Historical_Other" is missing period header row 9.');
-  }
-
+  const primaryHeaderRow = headerRows.get('direct-debit');
+  const scHeaderRow = headerRows.get('standard-credit');
+  const ppmHeaderRow = headerRows.get('prepayment');
   const directDebitRows = sheetMaps.get('direct-debit');
   const standardCreditRows = sheetMaps.get('standard-credit');
   const prepaymentRows = sheetMaps.get('prepayment');
-  if (!directDebitRows || !standardCreditRows || !prepaymentRows) {
+  if (
+    !primaryHeaderRow ||
+    !scHeaderRow ||
+    !ppmHeaderRow ||
+    !directDebitRows ||
+    !standardCreditRows ||
+    !prepaymentRows
+  ) {
     throw new Error('Failed to load payment method sheets from Annex 9 workbook.');
   }
 
@@ -347,7 +468,11 @@ export function parseAnnex9Workbook(params: {
     const probeValue = probeRow.get(col);
     if (!probeValue || !isDecimalNumberText(probeValue)) continue;
     const parsed = parseOfgemPeriodHeading(cell.value);
-    if (!parsed) continue;
+    if (!parsed) {
+      throw new Error(
+        `Unparseable populated period heading "${cell.value}" in "2a Historical_Other" column ${col}.`,
+      );
+    }
     if (
       Temporal.PlainDate.compare(
         Temporal.PlainDate.from(parsed.startDate),
@@ -356,6 +481,22 @@ export function parseAnnex9Workbook(params: {
     ) {
       continue;
     }
+
+    const scHeading = scHeaderRow.get(col)?.value ?? '';
+    const ppmHeading = ppmHeaderRow.get(col)?.value ?? '';
+    const scParsed = parseOfgemPeriodHeading(scHeading);
+    const ppmParsed = parseOfgemPeriodHeading(ppmHeading);
+    if (!scParsed || scParsed.id !== parsed.id) {
+      throw new Error(
+        `Column ${col} period mismatch in "2b Historical_SC": found "${scHeading}", expected ${parsed.id}.`,
+      );
+    }
+    if (!ppmParsed || ppmParsed.id !== parsed.id) {
+      throw new Error(
+        `Column ${col} period mismatch in "2c Historical_PPM": found "${ppmHeading}", expected ${parsed.id}.`,
+      );
+    }
+
     periodHeaders.push({ col, ...parsed });
   }
 
@@ -409,7 +550,13 @@ export function parseAnnex9Workbook(params: {
     };
   });
 
-  const latestAnnouncedPeriodId = activeParsed?.id ?? periods[periods.length - 1].id;
+  const latestPeriod = periods[periods.length - 1];
+  const latestAnnouncedPeriodId = activeParsed?.id ?? latestPeriod.id;
+  const activePeriod =
+    periods.find((period) => period.id === latestAnnouncedPeriodId) ?? latestPeriod;
+
+  verifyWorkbookVatAndHeadline({ outputSheet, activePeriod });
+  verifyWorkbookTdcv({ workbook, latestPeriod });
 
   return parsePriceCapDataset({
     schemaVersion: 1,

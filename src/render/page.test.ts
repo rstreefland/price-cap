@@ -93,6 +93,24 @@ describe('static page renderer and progressive enhancement', () => {
     expect(document.querySelector('[data-field="cur-dual"]')?.textContent).not.toBe('£1,706');
   });
 
+  it('syncs preserved non-default select values immediately on initialization', () => {
+    const dataset = loadDataset();
+    document.body.innerHTML = renderPageHtml({
+      dataset,
+      referenceDate: parsePlainDate('2026-11-25'),
+    });
+
+    const regionSelect = document.getElementById('region-select');
+    if (!(regionSelect instanceof HTMLSelectElement)) {
+      throw new Error('Expected region select');
+    }
+    regionSelect.value = 'london';
+    initPriceCapControls(document);
+
+    expect(document.querySelector('[data-field="region-name"]')?.textContent).toBe('London');
+    expect(document.querySelector('[data-field="cur-dual"]')?.textContent).toBe('£1,706');
+  });
+
   it('sets green down trend when the next quarter is cheaper than the current quarter', () => {
     const dataset = loadDataset();
     const html = renderPageHtml({
