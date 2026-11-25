@@ -202,13 +202,6 @@ export function renderPageHtml(params: {
       })`
     : '';
 
-  const daysText =
-    snapshot.daysUntilUpcoming !== null
-      ? snapshot.daysUntilUpcoming === 1
-        ? 'effective tomorrow'
-        : `effective in ${snapshot.daysUntilUpcoming} days`
-      : '';
-
   const nextQuarterTag = snapshot.upcomingPeriod
     ? formatQuarterTag(snapshot.upcomingPeriod.startDate)
     : null;
@@ -219,7 +212,7 @@ export function renderPageHtml(params: {
           <p class="kicker">Announced · ${escapeHtml(snapshot.upcomingPeriod.label)}</p>
           <p class="hero-figure hero-figure--next tnum" data-field="nxt-dual">${escapeHtml(formatPounds({ value: snapshot.upcomingRates.dualFuelAnnualPounds }))}</p>
           <p class="hero-meta tnum">
-            <span class="trend-text" data-field="delta-full">${escapeHtml(deltaText)}</span>${daysText ? ` · ${escapeHtml(daysText)}` : ''}
+            <span class="trend-text" data-field="delta-full">${escapeHtml(deltaText)}</span> vs current quarter
           </p>
         </article>`
       : `<article class="hero-cell hero-cell--next" data-trend-target data-trend="flat">

@@ -15,6 +15,10 @@ function sha256CspHash(content: string): string {
   return `'sha256-${digest}'`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const appConfig = defineConfig({
   base: './',
   build: {
@@ -38,7 +42,7 @@ const appConfig = defineConfig({
       },
     },
     {
-      name: 'inline-css-and-strict-csp',
+      name: 'inline-assets-and-strict-csp',
       apply: 'build',
       enforce: 'post',
       transformIndexHtml: {
@@ -46,18 +50,34 @@ const appConfig = defineConfig({
         handler(html, context) {
           let output = html;
           const styleHashes: string[] = [];
+          const scriptHashes: string[] = [];
 
           if (context.bundle) {
-            for (const [fileName, asset] of Object.entries(context.bundle)) {
-              if (asset.type === 'asset' && fileName.endsWith('.css')) {
+            for (const [fileName, entry] of Object.entries(context.bundle)) {
+              const escapedName = escapeRegExp(fileName);
+
+              if (entry.type === 'asset' && fileName.endsWith('.css')) {
                 const cssSource =
-                  typeof asset.source === 'string'
-                    ? asset.source
-                    : Buffer.from(asset.source).toString('utf8');
-                const escapedName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  typeof entry.source === 'string'
+                    ? entry.source
+                    : Buffer.from(entry.source).toString('utf8');
                 const linkPattern = new RegExp(`<link\\b[^>]*href="[^"]*${escapedName}"[^>]*>\\s*`);
                 if (linkPattern.test(output)) {
-                  output = output.replace(linkPattern, `<style>${cssSource}</style>`);
+                  output = output.replace(linkPattern, () => `<style>${cssSource}</style>`);
+                  delete context.bundle[fileName];
+                }
+              }
+
+              if (entry.type === 'chunk' && fileName.endsWith('.js')) {
+                const jsSource = entry.code.trim();
+                const scriptPattern = new RegExp(
+                  `<script\\b[^>]*src="[^"]*${escapedName}"[^>]*><\\/script>\\s*`,
+                );
+                if (scriptPattern.test(output)) {
+                  output = output.replace(
+                    scriptPattern,
+                    () => `<script type="module">${jsSource}</script>`,
+                  );
                   delete context.bundle[fileName];
                 }
               }
@@ -71,12 +91,21 @@ const appConfig = defineConfig({
             styleMatch = styleTagPattern.exec(output);
           }
 
+          const moduleScriptPattern = /<script type="module">([\s\S]*?)<\/script>/g;
+          let scriptMatch: RegExpExecArray | null = moduleScriptPattern.exec(output);
+          while (scriptMatch !== null) {
+            scriptHashes.push(sha256CspHash(scriptMatch[1]));
+            scriptMatch = moduleScriptPattern.exec(output);
+          }
+
           const styleSrcDirective =
             styleHashes.length > 0 ? `style-src ${styleHashes.join(' ')}` : "style-src 'self'";
+          const scriptSrcDirective =
+            scriptHashes.length > 0 ? `script-src ${scriptHashes.join(' ')}` : "script-src 'self'";
 
           const csp = [
             "default-src 'none'",
-            "script-src 'self'",
+            scriptSrcDirective,
             styleSrcDirective,
             "img-src 'self'",
             "connect-src 'none'",

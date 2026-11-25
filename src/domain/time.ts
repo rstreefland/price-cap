@@ -65,8 +65,3 @@ export function isDateInHalfOpenRange(params: {
     Temporal.PlainDate.compare(params.date, endExclusive) < 0
   );
 }
-
-export function daysUntil(params: { from: Temporal.PlainDate; toIsoDate: string }): number {
-  const target = Temporal.PlainDate.from(params.toIsoDate);
-  return params.from.until(target, { largestUnit: 'day' }).days;
-}

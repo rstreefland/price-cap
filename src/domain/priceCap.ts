@@ -1,5 +1,5 @@
 import { decimal, percentageChange, type DecimalValue } from './decimal';
-import { daysUntil, isDateInHalfOpenRange, Temporal } from './time';
+import { isDateInHalfOpenRange, Temporal } from './time';
 import type {
   CapPeriod,
   PaymentMethodId,
@@ -34,7 +34,6 @@ export interface DashboardSnapshot {
   upcomingRates: RegionalRates | null;
   currentVsPrevious: PeriodDelta | null;
   upcomingVsCurrent: PeriodDelta | null;
-  daysUntilUpcoming: number | null;
   recentQuarters: QuarterlySummaryItem[];
 }
 
@@ -140,10 +139,6 @@ export function buildDashboardSnapshot(params: {
       })
     : null;
 
-  const daysUntilUpcoming = upcomingPeriod
-    ? daysUntil({ from: params.referenceDate, toIsoDate: upcomingPeriod.startDate })
-    : null;
-
   const maxHistory = params.historyCount ?? 6;
   const endSlice = upcomingPeriod ? currentIndex + 2 : currentIndex + 1;
   const startSlice = endSlice > maxHistory ? endSlice - maxHistory : 0;
@@ -176,7 +171,6 @@ export function buildDashboardSnapshot(params: {
     upcomingRates,
     currentVsPrevious,
     upcomingVsCurrent,
-    daysUntilUpcoming,
     recentQuarters,
   };
 }

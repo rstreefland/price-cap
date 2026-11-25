@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  daysUntil,
   formatCompactPeriod,
   formatDateRange,
   formatShortDate,
@@ -51,7 +50,5 @@ describe('time helpers', () => {
         endDateExclusive: '2027-01-01',
       }),
     ).toBe(false);
-
-    expect(daysUntil({ from: parsePlainDate('2026-11-25'), toIsoDate: '2027-01-01' })).toBe(37);
   });
 });

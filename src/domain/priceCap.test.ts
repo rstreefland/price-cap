@@ -40,7 +40,6 @@ describe('priceCap domain snapshot', () => {
 
     expect(snapshot.currentPeriod.id).toBe('2026-10');
     expect(snapshot.upcomingPeriod?.id).toBe('2027-01');
-    expect(snapshot.daysUntilUpcoming).toBe(37);
     expect(snapshot.upcomingVsCurrent?.trend).toBe('up');
     expect(formatPounds({ value: snapshot.currentRates.dualFuelAnnualPounds })).toBe('£1,723');
     expect(formatPounds({ value: snapshot.upcomingRates?.dualFuelAnnualPounds ?? '0' })).toBe(
