@@ -7,6 +7,14 @@ interface DecodedChartPoint {
   valueLabel: string;
 }
 
+interface DecodedRateNext {
+  trend: TrendDirection;
+  value: string;
+  delta: string;
+}
+
+type DecodedOptionalRateNext = { valid: true; rate: DecodedRateNext | null } | { valid: false };
+
 interface DecodedView {
   trend: TrendDirection;
   curDual: string;
@@ -16,10 +24,10 @@ interface DecodedView {
   curElecStanding: string;
   curGasUnit: string;
   curGasStanding: string;
-  nxtElecUnit: string | null;
-  nxtElecStanding: string | null;
-  nxtGasUnit: string | null;
-  nxtGasStanding: string | null;
+  nxtElecUnit: DecodedRateNext | null;
+  nxtElecStanding: DecodedRateNext | null;
+  nxtGasUnit: DecodedRateNext | null;
+  nxtGasStanding: DecodedRateNext | null;
   chartPoints: DecodedChartPoint[];
 }
 
@@ -32,6 +40,16 @@ function decodeTrend(code: unknown): TrendDirection | null {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
+}
+
+function decodeOptionalRateNext(raw: unknown): DecodedOptionalRateNext {
+  if (raw === null) return { valid: true, rate: null };
+  if (!Array.isArray(raw) || raw.length !== 3) return { valid: false };
+  const trend = decodeTrend(raw[0]);
+  if (!trend || typeof raw[1] !== 'string' || typeof raw[2] !== 'string') {
+    return { valid: false };
+  }
+  return { valid: true, rate: { trend, value: raw[1], delta: raw[2] } };
 }
 
 function decodeChartPoints(raw: unknown): DecodedChartPoint[] | null {
@@ -63,12 +81,15 @@ function decodeView(raw: unknown): DecodedView | null {
     typeof raw[4] !== 'string' ||
     typeof raw[5] !== 'string' ||
     typeof raw[6] !== 'string' ||
-    typeof raw[7] !== 'string' ||
-    !isNullableString(raw[8]) ||
-    !isNullableString(raw[9]) ||
-    !isNullableString(raw[10]) ||
-    !isNullableString(raw[11])
+    typeof raw[7] !== 'string'
   ) {
+    return null;
+  }
+  const nxtElecUnit = decodeOptionalRateNext(raw[8]);
+  const nxtElecStanding = decodeOptionalRateNext(raw[9]);
+  const nxtGasUnit = decodeOptionalRateNext(raw[10]);
+  const nxtGasStanding = decodeOptionalRateNext(raw[11]);
+  if (!nxtElecUnit.valid || !nxtElecStanding.valid || !nxtGasUnit.valid || !nxtGasStanding.valid) {
     return null;
   }
   const chartPoints = decodeChartPoints(raw[12]);
@@ -83,10 +104,10 @@ function decodeView(raw: unknown): DecodedView | null {
     curElecStanding: raw[5],
     curGasUnit: raw[6],
     curGasStanding: raw[7],
-    nxtElecUnit: raw[8],
-    nxtElecStanding: raw[9],
-    nxtGasUnit: raw[10],
-    nxtGasStanding: raw[11],
+    nxtElecUnit: nxtElecUnit.rate,
+    nxtElecStanding: nxtElecStanding.rate,
+    nxtGasUnit: nxtGasUnit.rate,
+    nxtGasStanding: nxtGasStanding.rate,
     chartPoints,
   };
 }
@@ -158,6 +179,22 @@ function setFieldText(root: ParentNode, field: string, value: string | null): vo
   if (el) el.textContent = value;
 }
 
+function setRateNext(params: {
+  root: ParentNode;
+  rateKey: string;
+  valueField: string;
+  deltaField: string;
+  rate: DecodedRateNext | null;
+}): void {
+  if (!params.rate) return;
+  setFieldText(params.root, params.valueField, params.rate.value);
+  setFieldText(params.root, params.deltaField, params.rate.delta);
+  const trendNode = params.root.querySelector(`[data-rate-trend="${params.rateKey}"]`);
+  if (trendNode) {
+    trendNode.setAttribute('data-trend', params.rate.trend);
+  }
+}
+
 export function initCountdown(params: { root?: Document; todayIsoDate?: string } = {}): void {
   const root = params.root ?? document;
   const target = root.querySelector('[data-upcoming-start]');
@@ -216,10 +253,34 @@ export function initPriceCapControls(root: Document = document): void {
     setFieldText(root, 'cur-elec-standing', view.curElecStanding);
     setFieldText(root, 'cur-gas-unit', view.curGasUnit);
     setFieldText(root, 'cur-gas-standing', view.curGasStanding);
-    setFieldText(root, 'nxt-elec-unit', view.nxtElecUnit);
-    setFieldText(root, 'nxt-elec-standing', view.nxtElecStanding);
-    setFieldText(root, 'nxt-gas-unit', view.nxtGasUnit);
-    setFieldText(root, 'nxt-gas-standing', view.nxtGasStanding);
+    setRateNext({
+      root,
+      rateKey: 'elec-unit',
+      valueField: 'nxt-elec-unit',
+      deltaField: 'delta-elec-unit',
+      rate: view.nxtElecUnit,
+    });
+    setRateNext({
+      root,
+      rateKey: 'elec-standing',
+      valueField: 'nxt-elec-standing',
+      deltaField: 'delta-elec-standing',
+      rate: view.nxtElecStanding,
+    });
+    setRateNext({
+      root,
+      rateKey: 'gas-unit',
+      valueField: 'nxt-gas-unit',
+      deltaField: 'delta-gas-unit',
+      rate: view.nxtGasUnit,
+    });
+    setRateNext({
+      root,
+      rateKey: 'gas-standing',
+      valueField: 'nxt-gas-standing',
+      deltaField: 'delta-gas-standing',
+      rate: view.nxtGasStanding,
+    });
 
     root
       .querySelectorAll('[data-trend-root], [data-trend-target], [data-chart-svg]')

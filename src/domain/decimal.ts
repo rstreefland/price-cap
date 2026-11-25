@@ -40,13 +40,33 @@ export function formatPence(params: { value: NumericInput; places?: number }): s
   return `${decimal(params.value).toFixed(places, Decimal.ROUND_HALF_UP)}p`;
 }
 
+export function formatSignedPence(params: { value: NumericInput; places?: number }): string {
+  const places = params.places ?? 2;
+  const rounded = decimal(decimal(params.value).toFixed(places, Decimal.ROUND_HALF_UP));
+  const formatted = formatPence({ value: rounded.abs(), places });
+  if (rounded.gt(0)) return `+${formatted}`;
+  if (rounded.lt(0)) return `-${formatted}`;
+  return formatted;
+}
+
 export function formatPercentChange(params: { value: NumericInput; places?: number }): string {
   const places = params.places ?? 0;
   const amount = decimal(params.value);
   const rounded = amount.abs().toFixed(places, Decimal.ROUND_HALF_UP);
+  if (decimal(rounded).eq(0)) return `${rounded}%`;
   if (amount.gt(0)) return `+${rounded}%`;
   if (amount.lt(0)) return `-${rounded}%`;
   return `${rounded}%`;
+}
+
+export function formatCompactPercentChange(params: { value: NumericInput }): string {
+  const amount = decimal(params.value);
+  const magnitude = amount.abs();
+  if (magnitude.eq(0)) return '0%';
+  if (magnitude.gte('0.95')) return formatPercentChange({ value: amount, places: 0 });
+  if (magnitude.gte('0.05')) return formatPercentChange({ value: amount, places: 1 });
+  const twoPlace = formatPercentChange({ value: amount, places: 2 });
+  return twoPlace === '0.00%' ? '0%' : twoPlace;
 }
 
 export function percentageChange(params: {

@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parsePriceCapDataset } from '../api/schema';
-import { decimal, formatPounds, formatSignedPounds } from './decimal';
+import { decimal, formatPounds, formatSignedPence, formatSignedPounds } from './decimal';
 import {
   buildDashboardSnapshot,
   classifyPeriodStatus,
   classifyTrend,
+  computeRateDelta,
   formatQuarterTag,
 } from './priceCap';
 import { parsePlainDate } from './time';
@@ -48,7 +49,33 @@ describe('priceCap domain snapshot', () => {
     expect(formatSignedPounds({ value: snapshot.upcomingVsCurrent?.poundsDifference ?? '0' })).toBe(
       '+£443',
     );
+    expect(snapshot.upcomingRateDeltas?.electricityUnit.trend).toBe('up');
+    expect(
+      formatSignedPence({
+        value: snapshot.upcomingRateDeltas?.electricityUnit.penceDifference ?? '0',
+      }),
+    ).toBe('+6.37p');
+    expect(snapshot.upcomingRateDeltas?.electricityStanding.trend).toBe('down');
+    expect(
+      formatSignedPence({
+        value: snapshot.upcomingRateDeltas?.electricityStanding.penceDifference ?? '0',
+      }),
+    ).toBe('-0.07p');
+    expect(snapshot.upcomingRateDeltas?.gasUnit.trend).toBe('up');
+    expect(
+      formatSignedPence({ value: snapshot.upcomingRateDeltas?.gasUnit.penceDifference ?? '0' }),
+    ).toBe('+2.99p');
+    expect(snapshot.upcomingRateDeltas?.gasStanding.trend).toBe('down');
+    expect(
+      formatSignedPence({ value: snapshot.upcomingRateDeltas?.gasStanding.penceDifference ?? '0' }),
+    ).toBe('-0.04p');
     expect(snapshot.recentQuarters.length).toBe(6);
+  });
+
+  it('computes flat rate deltas when next and current pence values are equal', () => {
+    const flatDelta = computeRateDelta({ currentPence: '28.4852', previousPence: '28.4852' });
+    expect(flatDelta.trend).toBe('flat');
+    expect(formatSignedPence({ value: flatDelta.penceDifference })).toBe('0.00p');
   });
 
   it('marks upcoming period trend as down when next quarter is cheaper', () => {

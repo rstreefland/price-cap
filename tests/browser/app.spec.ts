@@ -95,6 +95,10 @@ describe('production static build', () => {
         EXPECTED_TREND_COLORS[result.desktopMetrics.rootTrend],
       );
     }
+    for (const rate of result.desktopMetrics?.rateTrends ?? []) {
+      expect(rate.color).toBe(EXPECTED_TREND_COLORS[rate.trend]);
+      expect(rate.deltaText).toMatch(/^[+-]?\d+\.\d{2}p \([+-]?\d+(?:\.\d+)?%\)$/);
+    }
     expect(result.desktopViolations).toEqual([]);
     expect(result.mobileMetrics?.overflowX).toBe(false);
     expect(result.mobileMetrics?.regionTouchHeight).toBeGreaterThanOrEqual(44);

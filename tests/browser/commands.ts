@@ -93,10 +93,19 @@ export async function productionPage(
           document.querySelector('[data-trend-root]')?.getAttribute('data-trend') ?? null;
         const nextFigure = document.querySelector('[data-field="nxt-dual"]');
         const nextColor = nextFigure ? getComputedStyle(nextFigure).color : null;
+        const rateTrends = Array.from(document.querySelectorAll('[data-rate-trend]')).map(
+          (node) => ({
+            rateKey: node.getAttribute('data-rate-trend') ?? '',
+            trend: node.getAttribute('data-trend') ?? '',
+            color: getComputedStyle(node).color,
+            deltaText: node.querySelector('.rate-next-delta')?.textContent ?? '',
+          }),
+        );
         return {
           overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           rootTrend,
           nextColor,
+          rateTrends,
         };
       });
 

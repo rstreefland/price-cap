@@ -17,6 +17,19 @@ export interface PeriodDelta {
   trend: TrendDirection;
 }
 
+export interface RateDelta {
+  penceDifference: DecimalValue;
+  percentChange: DecimalValue | null;
+  trend: TrendDirection;
+}
+
+export interface RegionalRateDeltas {
+  electricityUnit: RateDelta;
+  electricityStanding: RateDelta;
+  gasUnit: RateDelta;
+  gasStanding: RateDelta;
+}
+
 export interface QuarterlySummaryItem {
   period: CapPeriod;
   status: PeriodStatus;
@@ -34,6 +47,7 @@ export interface DashboardSnapshot {
   upcomingRates: RegionalRates | null;
   currentVsPrevious: PeriodDelta | null;
   upcomingVsCurrent: PeriodDelta | null;
+  upcomingRateDeltas: RegionalRateDeltas | null;
   recentQuarters: QuarterlySummaryItem[];
 }
 
@@ -71,6 +85,44 @@ export function computeBillDelta(params: {
     poundsDifference,
     percentChange: percentageChange({ current, previous }),
     trend: classifyTrend(poundsDifference),
+  };
+}
+
+export function computeRateDelta(params: {
+  currentPence: string;
+  previousPence: string;
+}): RateDelta {
+  const current = decimal(params.currentPence);
+  const previous = decimal(params.previousPence);
+  const penceDifference = current.minus(previous);
+  return {
+    penceDifference,
+    percentChange: percentageChange({ current, previous }),
+    trend: classifyTrend(penceDifference),
+  };
+}
+
+export function computeRegionalRateDeltas(params: {
+  currentRates: RegionalRates;
+  previousRates: RegionalRates;
+}): RegionalRateDeltas {
+  return {
+    electricityUnit: computeRateDelta({
+      currentPence: params.currentRates.electricity.unitRatePence,
+      previousPence: params.previousRates.electricity.unitRatePence,
+    }),
+    electricityStanding: computeRateDelta({
+      currentPence: params.currentRates.electricity.standingChargePence,
+      previousPence: params.previousRates.electricity.standingChargePence,
+    }),
+    gasUnit: computeRateDelta({
+      currentPence: params.currentRates.gas.unitRatePence,
+      previousPence: params.previousRates.gas.unitRatePence,
+    }),
+    gasStanding: computeRateDelta({
+      currentPence: params.currentRates.gas.standingChargePence,
+      previousPence: params.previousRates.gas.standingChargePence,
+    }),
   };
 }
 
@@ -139,6 +191,13 @@ export function buildDashboardSnapshot(params: {
       })
     : null;
 
+  const upcomingRateDeltas = upcomingRates
+    ? computeRegionalRateDeltas({
+        currentRates: upcomingRates,
+        previousRates: currentRates,
+      })
+    : null;
+
   const maxHistory = params.historyCount ?? 6;
   const endSlice = upcomingPeriod ? currentIndex + 2 : currentIndex + 1;
   const startSlice = endSlice > maxHistory ? endSlice - maxHistory : 0;
@@ -171,6 +230,7 @@ export function buildDashboardSnapshot(params: {
     upcomingRates,
     currentVsPrevious,
     upcomingVsCurrent,
+    upcomingRateDeltas,
     recentQuarters,
   };
 }

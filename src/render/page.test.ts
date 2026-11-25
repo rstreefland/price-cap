@@ -52,11 +52,41 @@ describe('static page renderer and progressive enhancement', () => {
       ' vs current quarter',
     );
 
+    expect(document.querySelector('#region-select option[value="gb-average"]')?.textContent).toBe(
+      'GB average',
+    );
+    expect(document.querySelector('[data-field="region-name"]')?.textContent).toBe(
+      'Great Britain average',
+    );
     expect(document.querySelector('[data-trend-root]')?.getAttribute('data-trend')).toBe('up');
     expect(document.querySelector('[data-field="cur-dual"]')?.textContent).toBe('£1,723');
     expect(document.querySelector('[data-field="nxt-dual"]')?.textContent).toBe('£2,166');
     expect(document.querySelector('[data-field="cur-elec-unit"]')?.textContent).toBe('26.32p');
     expect(document.querySelector('[data-field="cur-gas-unit"]')?.textContent).toBe('7.97p');
+    expect(
+      document.querySelector('[data-rate-trend="elec-unit"]')?.getAttribute('data-trend'),
+    ).toBe('up');
+    expect(
+      document.querySelector('[data-rate-trend="elec-standing"]')?.getAttribute('data-trend'),
+    ).toBe('down');
+    expect(document.querySelector('[data-rate-trend="gas-unit"]')?.getAttribute('data-trend')).toBe(
+      'up',
+    );
+    expect(
+      document.querySelector('[data-rate-trend="gas-standing"]')?.getAttribute('data-trend'),
+    ).toBe('down');
+    expect(document.querySelector('[data-field="delta-elec-unit"]')?.textContent).toBe(
+      '+6.37p (+24%)',
+    );
+    expect(document.querySelector('[data-field="delta-elec-standing"]')?.textContent).toBe(
+      '-0.07p (-0.1%)',
+    );
+    expect(document.querySelector('[data-field="delta-gas-unit"]')?.textContent).toBe(
+      '+2.99p (+38%)',
+    );
+    expect(document.querySelector('[data-field="delta-gas-standing"]')?.textContent).toBe(
+      '-0.04p (-0.1%)',
+    );
 
     initCountdown({ root: document, todayIsoDate: '2026-11-25' });
     expect(document.querySelector('[data-upcoming-start]')?.textContent).toBe(
@@ -83,6 +113,18 @@ describe('static page renderer and progressive enhancement', () => {
     regionSelect.dispatchEvent(new Event('change'));
     expect(document.querySelector('[data-field="region-name"]')?.textContent).toBe('London');
     expect(document.querySelector('[data-field="cur-elec-standing"]')?.textContent).toBe('42.92p');
+    expect(document.querySelector('[data-field="nxt-elec-standing"]')?.textContent).toBe(
+      '42.88p/day',
+    );
+    expect(document.querySelector('[data-field="delta-elec-standing"]')?.textContent).toBe(
+      '-0.04p (-0.1%)',
+    );
+    expect(document.querySelector('[data-field="delta-gas-standing"]')?.textContent).toBe(
+      '-0.01p (-0.05%)',
+    );
+    expect(
+      document.querySelector('[data-rate-trend="gas-standing"]')?.getAttribute('data-trend'),
+    ).toBe('down');
     expect(document.querySelector('[data-field="cur-dual"]')?.textContent).toBe('£1,706');
     expect(document.querySelector('[data-chart-step="5"] .chart-step-value')?.textContent).toBe(
       '£2,152',
@@ -123,6 +165,28 @@ describe('static page renderer and progressive enhancement', () => {
     expect(document.querySelector('[data-chart-svg]')?.getAttribute('data-trend')).toBe('down');
     expect(document.querySelector('[data-field="cur-dual"]')?.textContent).toBe('£1,758');
     expect(document.querySelector('[data-field="nxt-dual"]')?.textContent).toBe('£1,641');
+  });
+
+  it('renders flat neutral rate trend when an individual rate is unchanged between quarters', () => {
+    const dataset = loadDataset();
+    const html = renderPageHtml({
+      dataset,
+      referenceDate: parsePlainDate('2022-11-15'),
+    });
+
+    document.body.innerHTML = html;
+    expect(
+      document.querySelector('[data-rate-trend="elec-standing"]')?.getAttribute('data-trend'),
+    ).toBe('flat');
+    expect(document.querySelector('[data-field="delta-elec-standing"]')?.textContent).toBe(
+      '0.00p (0%)',
+    );
+    expect(
+      document.querySelector('[data-rate-trend="gas-standing"]')?.getAttribute('data-trend'),
+    ).toBe('flat');
+    expect(document.querySelector('[data-field="delta-gas-standing"]')?.textContent).toBe(
+      '0.00p (0%)',
+    );
   });
 
   it('renders pending state when no upcoming period is announced yet', () => {

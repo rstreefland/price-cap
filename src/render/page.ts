@@ -1,13 +1,17 @@
 import {
+  formatCompactPercentChange,
   formatPence,
   formatPercentChange,
   formatPounds,
+  formatSignedPence,
   formatSignedPounds,
 } from '../domain/decimal';
 import {
   buildDashboardSnapshot,
   computeBillDelta,
+  computeRateDelta,
   formatQuarterTag,
+  type RateDelta,
   type TrendDirection,
 } from '../domain/priceCap';
 import type { Temporal } from '../domain/time';
@@ -51,6 +55,8 @@ export type TrendCode = 'u' | 'd' | 'f';
 
 export type CompactChartTuple = [string, string, string];
 
+export type CompactRateNextTuple = [TrendCode, string, string];
+
 export type CompactViewTuple = [
   TrendCode,
   string,
@@ -60,10 +66,10 @@ export type CompactViewTuple = [
   string,
   string,
   string,
-  string | null,
-  string | null,
-  string | null,
-  string | null,
+  CompactRateNextTuple | null,
+  CompactRateNextTuple | null,
+  CompactRateNextTuple | null,
+  CompactRateNextTuple | null,
   CompactChartTuple[],
 ];
 
@@ -73,6 +79,30 @@ function toTrendCode(trend: TrendDirection): TrendCode {
   if (trend === 'up') return 'u';
   if (trend === 'down') return 'd';
   return 'f';
+}
+
+function formatRateDeltaText(delta: RateDelta): string {
+  const penceText = formatSignedPence({ value: delta.penceDifference });
+  const percentText = delta.percentChange
+    ? formatCompactPercentChange({ value: delta.percentChange })
+    : '0%';
+  return `${penceText} (${percentText})`;
+}
+
+function buildCompactRateNextTuple(params: {
+  nextPence: string;
+  currentPence: string;
+  unitSuffix: '/kWh' | '/day';
+}): CompactRateNextTuple {
+  const delta = computeRateDelta({
+    currentPence: params.nextPence,
+    previousPence: params.currentPence,
+  });
+  return [
+    toTrendCode(delta.trend),
+    `${formatPence({ value: params.nextPence })}${params.unitSuffix}`,
+    formatRateDeltaText(delta),
+  ];
 }
 
 function buildCompactViewTuple(params: {
@@ -126,10 +156,34 @@ function buildCompactViewTuple(params: {
     formatPence({ value: cur.electricity.standingChargePence }),
     formatPence({ value: cur.gas.unitRatePence }),
     formatPence({ value: cur.gas.standingChargePence }),
-    nxt ? `${formatPence({ value: nxt.electricity.unitRatePence })}/kWh` : null,
-    nxt ? `${formatPence({ value: nxt.electricity.standingChargePence })}/day` : null,
-    nxt ? `${formatPence({ value: nxt.gas.unitRatePence })}/kWh` : null,
-    nxt ? `${formatPence({ value: nxt.gas.standingChargePence })}/day` : null,
+    nxt
+      ? buildCompactRateNextTuple({
+          nextPence: nxt.electricity.unitRatePence,
+          currentPence: cur.electricity.unitRatePence,
+          unitSuffix: '/kWh',
+        })
+      : null,
+    nxt
+      ? buildCompactRateNextTuple({
+          nextPence: nxt.electricity.standingChargePence,
+          currentPence: cur.electricity.standingChargePence,
+          unitSuffix: '/day',
+        })
+      : null,
+    nxt
+      ? buildCompactRateNextTuple({
+          nextPence: nxt.gas.unitRatePence,
+          currentPence: cur.gas.unitRatePence,
+          unitSuffix: '/kWh',
+        })
+      : null,
+    nxt
+      ? buildCompactRateNextTuple({
+          nextPence: nxt.gas.standingChargePence,
+          currentPence: cur.gas.standingChargePence,
+          unitSuffix: '/day',
+        })
+      : null,
     chartTuples,
   ];
 }
@@ -185,9 +239,10 @@ export function renderPageHtml(params: {
     ? snapshot.upcomingVsCurrent.trend
     : 'flat';
 
-  const regionOptions = REGIONS.map(
-    (region) => `<option value="${escapeHtml(region.id)}">${escapeHtml(region.name)}</option>`,
-  ).join('');
+  const regionOptions = REGIONS.map((region) => {
+    const label = region.id === 'gb-average' ? region.shortName : region.name;
+    return `<option value="${escapeHtml(region.id)}">${escapeHtml(label)}</option>`;
+  }).join('');
 
   const paymentOptions = PAYMENT_METHODS.map(
     (method) =>
@@ -221,9 +276,18 @@ export function renderPageHtml(params: {
           <p class="hero-meta">Ofgem announces the next quarterly cap roughly five weeks before it starts.</p>
         </article>`;
 
-  const rateNextLine = (lineParams: { field: string; value: string | null }) =>
-    lineParams.value
-      ? `<p class="rate-next tnum" data-trend-target data-trend="${initialTrend}">${escapeHtml(nextQuarterTag ?? 'Next')} <span data-field="${lineParams.field}">${escapeHtml(lineParams.value)}</span></p>`
+  const rateNextBlock = (lineParams: {
+    rateKey: string;
+    valueField: string;
+    deltaField: string;
+    nextValue: string | null;
+    delta: RateDelta | null;
+  }) =>
+    lineParams.nextValue && lineParams.delta
+      ? `<div class="rate-next tnum" data-rate-trend="${lineParams.rateKey}" data-trend="${lineParams.delta.trend}">
+          <p class="rate-next-value">${escapeHtml(nextQuarterTag ?? 'Next')} <span data-field="${lineParams.valueField}">${escapeHtml(lineParams.nextValue)}</span></p>
+          <p class="rate-next-delta" data-field="${lineParams.deltaField}">${escapeHtml(formatRateDeltaText(lineParams.delta))}</p>
+        </div>`
       : `<p class="rate-next rate-next--muted">Current quarter</p>`;
 
   const stepChartSvg = renderStepChartSvg({
@@ -290,41 +354,57 @@ export function renderPageHtml(params: {
             <article class="rate-cell">
               <p class="rate-label">Electricity unit</p>
               <p class="rate-value tnum"><span data-field="cur-elec-unit">${escapeHtml(formatPence({ value: snapshot.currentRates.electricity.unitRatePence }))}</span><span class="rate-unit">/kWh</span></p>
-              ${rateNextLine({
-                field: 'nxt-elec-unit',
-                value: snapshot.upcomingRates
+              ${rateNextBlock({
+                rateKey: 'elec-unit',
+                valueField: 'nxt-elec-unit',
+                deltaField: 'delta-elec-unit',
+                nextValue: snapshot.upcomingRates
                   ? `${formatPence({ value: snapshot.upcomingRates.electricity.unitRatePence })}/kWh`
+                  : null,
+                delta: snapshot.upcomingRateDeltas
+                  ? snapshot.upcomingRateDeltas.electricityUnit
                   : null,
               })}
             </article>
             <article class="rate-cell">
               <p class="rate-label">Electricity standing</p>
               <p class="rate-value tnum"><span data-field="cur-elec-standing">${escapeHtml(formatPence({ value: snapshot.currentRates.electricity.standingChargePence }))}</span><span class="rate-unit">/day</span></p>
-              ${rateNextLine({
-                field: 'nxt-elec-standing',
-                value: snapshot.upcomingRates
+              ${rateNextBlock({
+                rateKey: 'elec-standing',
+                valueField: 'nxt-elec-standing',
+                deltaField: 'delta-elec-standing',
+                nextValue: snapshot.upcomingRates
                   ? `${formatPence({ value: snapshot.upcomingRates.electricity.standingChargePence })}/day`
+                  : null,
+                delta: snapshot.upcomingRateDeltas
+                  ? snapshot.upcomingRateDeltas.electricityStanding
                   : null,
               })}
             </article>
             <article class="rate-cell">
               <p class="rate-label">Gas unit</p>
               <p class="rate-value tnum"><span data-field="cur-gas-unit">${escapeHtml(formatPence({ value: snapshot.currentRates.gas.unitRatePence }))}</span><span class="rate-unit">/kWh</span></p>
-              ${rateNextLine({
-                field: 'nxt-gas-unit',
-                value: snapshot.upcomingRates
+              ${rateNextBlock({
+                rateKey: 'gas-unit',
+                valueField: 'nxt-gas-unit',
+                deltaField: 'delta-gas-unit',
+                nextValue: snapshot.upcomingRates
                   ? `${formatPence({ value: snapshot.upcomingRates.gas.unitRatePence })}/kWh`
                   : null,
+                delta: snapshot.upcomingRateDeltas ? snapshot.upcomingRateDeltas.gasUnit : null,
               })}
             </article>
             <article class="rate-cell">
               <p class="rate-label">Gas standing</p>
               <p class="rate-value tnum"><span data-field="cur-gas-standing">${escapeHtml(formatPence({ value: snapshot.currentRates.gas.standingChargePence }))}</span><span class="rate-unit">/day</span></p>
-              ${rateNextLine({
-                field: 'nxt-gas-standing',
-                value: snapshot.upcomingRates
+              ${rateNextBlock({
+                rateKey: 'gas-standing',
+                valueField: 'nxt-gas-standing',
+                deltaField: 'delta-gas-standing',
+                nextValue: snapshot.upcomingRates
                   ? `${formatPence({ value: snapshot.upcomingRates.gas.standingChargePence })}/day`
                   : null,
+                delta: snapshot.upcomingRateDeltas ? snapshot.upcomingRateDeltas.gasStanding : null,
               })}
             </article>
           </section>
